@@ -88,6 +88,8 @@ pub struct ClaudeAssistantEvent {
     pub text: Option<String>,
     /// Session ID
     pub session_id: Option<String>,
+    /// Error type (e.g., "authentication_failed")
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -343,4 +345,109 @@ pub struct CodexThreadItem {
     pub item_type: Option<String>,
     #[serde(flatten)]
     pub details: serde_json::Value,
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test parsing of authentication failure JSONL sequence.
+    /// When Claude CLI returns an auth error, we receive:
+    /// 1. system init event
+    /// 2. assistant event with error field and error text
+    /// 3. result event with is_error: true
+    #[test]
+    fn test_parse_auth_failure_system_init() {
+        let line = r#"{"type":"system","subtype":"init","cwd":"/home/fcoury/.conduit/workspaces/conduit/old-fox","session_id":"50884eed-28b7-431e-9ad8-78b326696ae7","tools":["Task","TaskOutput","Bash","Glob","Grep","ExitPlanMode","Read","Edit","Write","NotebookEdit","WebFetch","TodoWrite","WebSearch","KillShell","AskUserQuestion","Skill","EnterPlanMode"],"mcp_servers":[],"model":"claude-sonnet-4-5-20250929","permissionMode":"default","slash_commands":["compact","context","cost","init","pr-comments","release-notes","review","security-review"],"apiKeySource":"none","claude_code_version":"2.1.2","output_style":"default","agents":["Bash","general-purpose","statusline-setup","Explore","Plan"],"skills":[],"plugins":[],"uuid":"db0dbd6c-b06a-4009-8d9d-412a46693eed"}"#;
+
+        let event: ClaudeRawEvent = serde_json::from_str(line).expect("Failed to parse system init");
+
+        match event {
+            ClaudeRawEvent::System(sys) => {
+                assert_eq!(sys.subtype, Some("init".to_string()));
+                assert_eq!(
+                    sys.session_id,
+                    Some("50884eed-28b7-431e-9ad8-78b326696ae7".to_string())
+                );
+                assert_eq!(sys.model, Some("claude-sonnet-4-5-20250929".to_string()));
+            }
+            other => panic!("Expected System event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_auth_failure_assistant_event() {
+        let line = r#"{"type":"assistant","message":{"id":"029c1c0f-6927-4a48-aae1-21a3e895456f","container":null,"model":"<synthetic>","role":"assistant","stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":null,"cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0}},"content":[{"type":"text","text":"Invalid API key · Please run /login"}],"context_management":null},"parent_tool_use_id":null,"session_id":"50884eed-28b7-431e-9ad8-78b326696ae7","uuid":"088cb8d8-a2b6-4633-860d-d2bb5562bfe2","error":"authentication_failed"}"#;
+
+        let event: ClaudeRawEvent = serde_json::from_str(line).expect("Failed to parse assistant event");
+
+        match event {
+            ClaudeRawEvent::Assistant(assistant) => {
+                // Verify the text extraction works
+                let text = assistant.extract_text();
+                assert_eq!(text, Some("Invalid API key · Please run /login".to_string()));
+
+                // Verify session_id is captured
+                assert_eq!(
+                    assistant.session_id,
+                    Some("50884eed-28b7-431e-9ad8-78b326696ae7".to_string())
+                );
+
+                // Note: The error field is currently ignored by deserialization
+                // because ClaudeAssistantEvent doesn't have an error field.
+                // This test documents the current behavior.
+            }
+            other => panic!("Expected Assistant event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_auth_failure_result_event() {
+        let line = r#"{"type":"result","subtype":"success","is_error":true,"duration_ms":262,"duration_api_ms":0,"num_turns":1,"result":"Invalid API key · Please run /login","session_id":"50884eed-28b7-431e-9ad8-78b326696ae7","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0}},"modelUsage":{},"permission_denials":[],"uuid":"88523c63-2f50-4d6c-ba86-fb32c6745527"}"#;
+
+        let event: ClaudeRawEvent = serde_json::from_str(line).expect("Failed to parse result event");
+
+        match event {
+            ClaudeRawEvent::Result(result) => {
+                assert_eq!(
+                    result.result,
+                    Some("Invalid API key · Please run /login".to_string())
+                );
+                assert_eq!(
+                    result.session_id,
+                    Some("50884eed-28b7-431e-9ad8-78b326696ae7".to_string())
+                );
+                // Verify usage is parsed (even with zero values)
+                assert!(result.usage.is_some());
+                let usage = result.usage.unwrap();
+                assert_eq!(usage.input_tokens, Some(0));
+                assert_eq!(usage.output_tokens, Some(0));
+            }
+            other => panic!("Expected Result event, got {:?}", other),
+        }
+    }
+
+    /// Test that the full auth failure sequence parses correctly
+    #[test]
+    fn test_parse_auth_failure_full_sequence() {
+        let lines = vec![
+            r#"{"type":"system","subtype":"init","cwd":"/home/fcoury/.conduit/workspaces/conduit/old-fox","session_id":"50884eed-28b7-431e-9ad8-78b326696ae7","tools":["Task"],"mcp_servers":[],"model":"claude-sonnet-4-5-20250929","permissionMode":"default","slash_commands":[],"apiKeySource":"none","claude_code_version":"2.1.2","output_style":"default","agents":[],"skills":[],"plugins":[],"uuid":"db0dbd6c-b06a-4009-8d9d-412a46693eed"}"#,
+            r#"{"type":"assistant","message":{"id":"029c1c0f-6927-4a48-aae1-21a3e895456f","container":null,"model":"<synthetic>","role":"assistant","stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"Invalid API key · Please run /login"}],"context_management":null},"parent_tool_use_id":null,"session_id":"50884eed-28b7-431e-9ad8-78b326696ae7","uuid":"088cb8d8-a2b6-4633-860d-d2bb5562bfe2","error":"authentication_failed"}"#,
+            r#"{"type":"result","subtype":"success","is_error":true,"duration_ms":262,"duration_api_ms":0,"num_turns":1,"result":"Invalid API key · Please run /login","session_id":"50884eed-28b7-431e-9ad8-78b326696ae7","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0},"modelUsage":{},"permission_denials":[],"uuid":"88523c63-2f50-4d6c-ba86-fb32c6745527"}"#,
+        ];
+
+        let events: Vec<ClaudeRawEvent> = lines
+            .iter()
+            .map(|line| serde_json::from_str(line).expect("Failed to parse line"))
+            .collect();
+
+        assert_eq!(events.len(), 3);
+        assert!(matches!(events[0], ClaudeRawEvent::System(_)));
+        assert!(matches!(events[1], ClaudeRawEvent::Assistant(_)));
+        assert!(matches!(events[2], ClaudeRawEvent::Result(_)));
+    }
 }

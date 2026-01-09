@@ -103,6 +103,21 @@ impl ClaudeCodeRunner {
             ClaudeRawEvent::Assistant(assistant) => {
                 let mut events = Vec::new();
 
+                // Check for authentication failure or other errors
+                if let Some(ref error) = assistant.error {
+                    if error == "authentication_failed" {
+                        return vec![AgentEvent::Error(ErrorEvent {
+                            message: "Authentication failed. Please run `claude /login` in your terminal to authenticate.".to_string(),
+                            is_fatal: true,
+                        })];
+                    }
+                    // Handle other error types as fatal errors
+                    return vec![AgentEvent::Error(ErrorEvent {
+                        message: format!("Claude error: {}", error),
+                        is_fatal: true,
+                    })];
+                }
+
                 // Extract text content
                 let text = assistant.extract_text().unwrap_or_default();
                 if !text.is_empty() {
@@ -353,6 +368,226 @@ impl AgentRunner for ClaudeCodeRunner {
             Some(self.binary_path.clone())
         } else {
             Self::find_binary()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::stream::{
+        ClaudeAssistantEvent, ClaudeContentBlock, ClaudeMessageObject, ClaudeRawEvent,
+        ClaudeResultEvent, ClaudeSystemEvent, ClaudeUsage,
+    };
+
+    /// Test that a system init event is correctly converted to SessionInit
+    #[test]
+    fn test_convert_system_init_event() {
+        let raw = ClaudeRawEvent::System(ClaudeSystemEvent {
+            subtype: Some("init".to_string()),
+            session_id: Some("test-session-123".to_string()),
+            model: Some("claude-sonnet-4-5-20250929".to_string()),
+        });
+
+        let events = ClaudeCodeRunner::convert_event(raw);
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            AgentEvent::SessionInit(init) => {
+                assert_eq!(init.session_id.as_str(), "test-session-123");
+                assert_eq!(init.model, Some("claude-sonnet-4-5-20250929".to_string()));
+            }
+            other => panic!("Expected SessionInit, got {:?}", other),
+        }
+    }
+
+    /// Test that a normal assistant event (no error) produces AssistantMessage
+    #[test]
+    fn test_convert_normal_assistant_event() {
+        let raw = ClaudeRawEvent::Assistant(ClaudeAssistantEvent {
+            message: Some(ClaudeMessageObject {
+                model: Some("claude-sonnet".to_string()),
+                id: Some("029c1c0f-6927-4a48-aae1-21a3e895456f".to_string()),
+                role: Some("assistant".to_string()),
+                content: Some(vec![ClaudeContentBlock::Text {
+                    text: "Hello, how can I help?".to_string(),
+                }]),
+                stop_reason: Some("stop_sequence".to_string()),
+                usage: Some(ClaudeUsage {
+                    input_tokens: Some(100),
+                    output_tokens: Some(50),
+                }),
+            }),
+            text: None,
+            session_id: Some("50884eed-28b7-431e-9ad8-78b326696ae7".to_string()),
+            error: None,
+        });
+
+        let events = ClaudeCodeRunner::convert_event(raw);
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            AgentEvent::AssistantMessage(msg) => {
+                assert_eq!(msg.text, "Hello, how can I help?");
+                assert!(msg.is_final);
+            }
+            other => panic!("Expected AssistantMessage, got {:?}", other),
+        }
+    }
+
+    /// Test that a result event with is_error produces TurnCompleted
+    /// Note: The is_error field is currently not used to emit an error event
+    #[test]
+    fn test_convert_auth_failure_result_event() {
+        let raw = ClaudeRawEvent::Result(ClaudeResultEvent {
+            result: Some("Invalid API key · Please run /login".to_string()),
+            output: None,
+            session_id: Some("50884eed-28b7-431e-9ad8-78b326696ae7".to_string()),
+            usage: Some(ClaudeUsage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+            }),
+        });
+
+        let events = ClaudeCodeRunner::convert_event(raw);
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            AgentEvent::TurnCompleted(completed) => {
+                // Usage should be parsed correctly even with zero values
+                assert_eq!(completed.usage.input_tokens, 0);
+                assert_eq!(completed.usage.output_tokens, 0);
+            }
+            other => panic!("Expected TurnCompleted, got {:?}", other),
+        }
+    }
+
+    /// Test the full auth failure sequence conversion
+    /// This simulates what happens when Claude CLI returns an auth error
+    #[test]
+    fn test_convert_auth_failure_full_sequence() {
+        let raw_events = vec![
+            ClaudeRawEvent::System(ClaudeSystemEvent {
+                subtype: Some("init".to_string()),
+                session_id: Some("test-session".to_string()),
+                model: Some("claude-sonnet-4-5-20250929".to_string()),
+            }),
+            ClaudeRawEvent::Assistant(ClaudeAssistantEvent {
+                message: Some(ClaudeMessageObject {
+                    model: Some("<synthetic>".to_string()),
+                    id: Some("test-id".to_string()),
+                    role: Some("assistant".to_string()),
+                    content: Some(vec![ClaudeContentBlock::Text {
+                        text: "Invalid API key · Please run /login".to_string(),
+                    }]),
+                    stop_reason: Some("stop_sequence".to_string()),
+                    usage: None,
+                }),
+                text: None,
+                session_id: Some("test-session".to_string()),
+                error: Some("authentication_failed".to_string()),
+            }),
+            ClaudeRawEvent::Result(ClaudeResultEvent {
+                result: Some("Invalid API key · Please run /login".to_string()),
+                output: None,
+                session_id: Some("test-session".to_string()),
+                usage: Some(ClaudeUsage {
+                    input_tokens: Some(0),
+                    output_tokens: Some(0),
+                }),
+            }),
+        ];
+
+        let all_events: Vec<AgentEvent> = raw_events
+            .into_iter()
+            .flat_map(ClaudeCodeRunner::convert_event)
+            .collect();
+
+        // Should produce: SessionInit, Error, TurnCompleted
+        // (no AssistantMessage - the error replaces it)
+        assert_eq!(all_events.len(), 3);
+        assert!(matches!(all_events[0], AgentEvent::SessionInit(_)));
+        assert!(matches!(all_events[1], AgentEvent::Error(_)));
+        assert!(matches!(all_events[2], AgentEvent::TurnCompleted(_)));
+
+        // Verify the error message contains helpful instructions
+        if let AgentEvent::Error(err) = &all_events[1] {
+            assert!(err.is_fatal, "Auth failure should be fatal");
+            assert!(
+                err.message.contains("claude") || err.message.contains("login"),
+                "Error should mention how to login: {}",
+                err.message
+            );
+        }
+    }
+
+    /// Test that auth failure assistant event produces Error instead of AssistantMessage
+    #[test]
+    fn test_convert_auth_failure_produces_error_event() {
+        let raw = ClaudeRawEvent::Assistant(ClaudeAssistantEvent {
+            message: Some(ClaudeMessageObject {
+                model: Some("<synthetic>".to_string()),
+                id: Some("test-id".to_string()),
+                role: Some("assistant".to_string()),
+                content: Some(vec![ClaudeContentBlock::Text {
+                    text: "Invalid API key · Please run /login".to_string(),
+                }]),
+                stop_reason: Some("stop_sequence".to_string()),
+                usage: None,
+            }),
+            text: None,
+            session_id: Some("test-session".to_string()),
+            error: Some("authentication_failed".to_string()),
+        });
+
+        let events = ClaudeCodeRunner::convert_event(raw);
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            AgentEvent::Error(err) => {
+                assert!(err.is_fatal);
+                assert!(
+                    err.message.contains("Authentication failed"),
+                    "Should mention auth failed: {}",
+                    err.message
+                );
+                assert!(
+                    err.message.contains("claude") && err.message.contains("/login"),
+                    "Should tell user how to fix: {}",
+                    err.message
+                );
+            }
+            other => panic!("Expected Error event, got {:?}", other),
+        }
+    }
+
+    /// Test that normal assistant events (no error field) still work
+    #[test]
+    fn test_normal_assistant_event_still_produces_message() {
+        let raw = ClaudeRawEvent::Assistant(ClaudeAssistantEvent {
+            message: Some(ClaudeMessageObject {
+                model: Some("claude-sonnet".to_string()),
+                id: Some("test-id".to_string()),
+                role: Some("assistant".to_string()),
+                content: Some(vec![ClaudeContentBlock::Text {
+                    text: "Hello! How can I help?".to_string(),
+                }]),
+                stop_reason: Some("end_turn".to_string()),
+                usage: None,
+            }),
+            text: None,
+            session_id: Some("test-session".to_string()),
+            error: None,
+        });
+
+        let events = ClaudeCodeRunner::convert_event(raw);
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            AgentEvent::AssistantMessage(msg) => {
+                assert_eq!(msg.text, "Hello! How can I help?");
+            }
+            other => panic!("Expected AssistantMessage, got {:?}", other),
         }
     }
 }
