@@ -61,8 +61,9 @@ async fn run_app() -> Result<()> {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::WARN.into()),
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::Level::WARN.into())
+                .from_env_lossy(),
         )
         .with_writer(log_file)
         .with_ansi(false) // Disable ANSI colors in log file
