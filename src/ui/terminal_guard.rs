@@ -83,11 +83,7 @@ pub fn install_panic_hook() {
         let _ = execute!(stdout, PopKeyboardEnhancementFlags);
         let _ = stdout.flush();
         let _ = disable_raw_mode();
-        let _ = execute!(
-            stdout,
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        );
+        let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
         let _ = stdout.flush();
 
         // Now call the original hook to print the panic
