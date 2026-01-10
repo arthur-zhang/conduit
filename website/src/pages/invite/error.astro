@@ -1,0 +1,104 @@
+---
+import Layout from '../../layouts/Layout.astro'
+
+const url = Astro.url
+const reason = url.searchParams.get('reason') || 'unknown'
+
+const errorMessages: Record<string, { title: string; message: string }> = {
+  github_auth_failed: {
+    title: 'GitHub Authentication Failed',
+    message: 'We could not authenticate with GitHub. Please try again.',
+  },
+  invalid_state: {
+    title: 'Security Check Failed',
+    message: 'The authentication session was invalid. Please try again.',
+  },
+  missing_verifier: {
+    title: 'Session Expired',
+    message: 'Your authentication session has expired. Please try again.',
+  },
+  missing_invite: {
+    title: 'Missing Invite',
+    message: 'No invite token was found. Please use the link from your email.',
+  },
+  token_exchange_failed: {
+    title: 'Authentication Error',
+    message: 'Failed to complete GitHub authentication. Please try again.',
+  },
+  token_error: {
+    title: 'Token Error',
+    message: 'There was an error with the authentication token. Please try again.',
+  },
+  no_access_token: {
+    title: 'Access Denied',
+    message: 'GitHub did not provide access. Please try again.',
+  },
+  user_fetch_failed: {
+    title: 'User Info Error',
+    message: 'Could not retrieve your GitHub information. Please try again.',
+  },
+  server_error: {
+    title: 'Server Error',
+    message: 'An internal error occurred. Please try again later.',
+  },
+  invalid_token: {
+    title: 'Invalid Invite',
+    message: 'This invite link is not valid. Please check the link from your email.',
+  },
+  already_used: {
+    title: 'Already Used',
+    message: 'This invite has already been accepted.',
+  },
+  expired: {
+    title: 'Invite Expired',
+    message: 'This invite link has expired. Please contact us for a new invite.',
+  },
+  repo_access_failed: {
+    title: 'Repository Access Failed',
+    message: 'We could not add you to the repository. Please contact us for assistance.',
+  },
+  oauth_error: {
+    title: 'Authentication Error',
+    message: 'An error occurred during authentication. Please try again.',
+  },
+  unknown: {
+    title: 'Something Went Wrong',
+    message: 'An unexpected error occurred. Please try again.',
+  },
+}
+
+const error = errorMessages[reason] || errorMessages.unknown
+---
+
+<Layout title="Error - Conduit">
+  <main class="min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full">
+      <div class="bg-[var(--color-bg-hero)] border border-[var(--color-border-default)] rounded-lg p-8 text-center">
+        <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--color-accent-error)]/10 flex items-center justify-center">
+          <svg class="w-8 h-8 text-[var(--color-accent-error)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+
+        <h1 class="text-2xl font-display text-[var(--color-text-bright)] mb-4">
+          {error.title}
+        </h1>
+
+        <p class="text-[var(--color-text-secondary)] mb-6">
+          {error.message}
+        </p>
+
+        <a
+          href="/"
+          class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg border border-[var(--color-border-default)] hover:border-[var(--color-text-secondary)] text-[var(--color-text-secondary)] font-medium transition-colors"
+        >
+          Return Home
+        </a>
+
+        <p class="text-[var(--color-text-muted)] text-xs mt-6">
+          Error code: {reason}
+        </p>
+      </div>
+    </div>
+  </main>
+</Layout>
