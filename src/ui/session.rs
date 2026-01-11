@@ -209,6 +209,24 @@ impl AgentSession {
         self.raw_events_view.set_session_id(session_id);
     }
 
+    /// Change agent type and/or model, updating all related state.
+    /// Returns true if the agent type changed.
+    pub fn set_agent_and_model(&mut self, agent_type: AgentType, model: Option<String>) -> bool {
+        let agent_changed = self.agent_type != agent_type;
+
+        self.agent_type = agent_type;
+        self.capabilities = AgentCapabilities::for_agent(agent_type);
+        self.model = model;
+
+        // Clamp agent mode - Codex doesn't support Plan mode
+        if agent_type == AgentType::Codex && self.agent_mode == AgentMode::Plan {
+            self.agent_mode = AgentMode::Build;
+        }
+
+        self.update_status();
+        agent_changed
+    }
+
     /// Add token usage from a turn
     pub fn add_usage(&mut self, usage: TokenUsage) {
         // Update turn summary with this turn's tokens
@@ -440,5 +458,80 @@ impl AgentSession {
     pub fn set_capabilities(&mut self, capabilities: AgentCapabilities) {
         self.capabilities = capabilities;
         self.update_status();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set_agent_and_model_updates_capabilities() {
+        // Start with Claude session
+        let mut session = AgentSession::new(AgentType::Claude);
+        assert!(session.capabilities.supports_plan_mode);
+        assert_eq!(session.agent_type, AgentType::Claude);
+
+        // Switch to Codex
+        let agent_changed =
+            session.set_agent_and_model(AgentType::Codex, Some("gpt-4".to_string()));
+
+        assert!(agent_changed);
+        assert_eq!(session.agent_type, AgentType::Codex);
+        assert!(!session.capabilities.supports_plan_mode);
+        assert_eq!(session.model, Some("gpt-4".to_string()));
+    }
+
+    #[test]
+    fn test_set_agent_and_model_clamps_plan_mode_for_codex() {
+        // Start with Claude in Plan mode
+        let mut session = AgentSession::new(AgentType::Claude);
+        session.agent_mode = AgentMode::Plan;
+        assert_eq!(session.agent_mode, AgentMode::Plan);
+
+        // Switch to Codex - should clamp to Build
+        session.set_agent_and_model(AgentType::Codex, Some("gpt-4".to_string()));
+
+        assert_eq!(session.agent_mode, AgentMode::Build);
+    }
+
+    #[test]
+    fn test_set_agent_and_model_preserves_build_mode() {
+        // Start with Claude in Build mode
+        let mut session = AgentSession::new(AgentType::Claude);
+        session.agent_mode = AgentMode::Build;
+
+        // Switch to Codex - should stay Build
+        session.set_agent_and_model(AgentType::Codex, Some("gpt-4".to_string()));
+
+        assert_eq!(session.agent_mode, AgentMode::Build);
+    }
+
+    #[test]
+    fn test_set_agent_and_model_returns_false_for_same_agent() {
+        let mut session = AgentSession::new(AgentType::Claude);
+
+        // Change model but not agent type
+        let agent_changed =
+            session.set_agent_and_model(AgentType::Claude, Some("claude-opus".to_string()));
+
+        assert!(!agent_changed);
+        assert_eq!(session.model, Some("claude-opus".to_string()));
+    }
+
+    #[test]
+    fn test_codex_session_has_correct_capabilities() {
+        let session = AgentSession::new(AgentType::Codex);
+
+        assert!(!session.capabilities.supports_plan_mode);
+        assert_eq!(session.agent_type, AgentType::Codex);
+    }
+
+    #[test]
+    fn test_claude_session_has_correct_capabilities() {
+        let session = AgentSession::new(AgentType::Claude);
+
+        assert!(session.capabilities.supports_plan_mode);
+        assert_eq!(session.agent_type, AgentType::Claude);
     }
 }

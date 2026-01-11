@@ -1746,12 +1746,8 @@ impl App {
                             return Ok(effects);
                         }
                         if let Some(session) = self.state.tab_manager.active_session_mut() {
-                            let agent_changed = session.agent_type != agent_type;
-                            session.model = Some(model_id.clone());
-                            session.agent_type = agent_type;
-                            session.agent_mode =
-                                Self::clamp_agent_mode(agent_type, session.agent_mode);
-                            session.update_status();
+                            let agent_changed =
+                                session.set_agent_and_model(agent_type, Some(model_id.clone()));
                             let msg = if agent_changed {
                                 format!("Switched to {} with model: {}", agent_type, display_name)
                             } else {
@@ -2274,9 +2270,14 @@ impl App {
             // ========== Command Palette ==========
             Action::OpenCommandPalette => {
                 self.state.close_overlays();
+                let supports_plan_mode = self
+                    .state
+                    .tab_manager
+                    .active_session()
+                    .is_some_and(|s| s.capabilities.supports_plan_mode);
                 self.state
                     .command_palette_state
-                    .show(&self.config.keybindings);
+                    .show(&self.config.keybindings, supports_plan_mode);
                 self.state.input_mode = InputMode::CommandPalette;
             }
         }
@@ -3187,10 +3188,9 @@ impl App {
 
             // Restore saved session data if available
             if let Some(saved) = saved_tab {
-                session.agent_type = saved.agent_type;
-                session.model = saved.model;
+                session.set_agent_and_model(saved.agent_type, saved.model);
                 if let Some(saved_mode) = saved_agent_mode {
-                    session.agent_mode = saved_mode;
+                    session.agent_mode = saved_mode; // Pre-clamped above
                 }
                 session.fork_seed_id = saved.fork_seed_id;
 
@@ -5174,7 +5174,6 @@ Acknowledge that you have received this context by replying ONLY with the single
             // Apply the selection (same logic as Enter key)
             if let Some(model) = self.state.model_selector_state.selected_model().cloned() {
                 if let Some(session) = self.state.tab_manager.active_session_mut() {
-                    let agent_changed = session.agent_type != model.agent_type;
                     let required_tool = Self::required_tool(model.agent_type);
                     if !self.tools.is_available(required_tool) {
                         self.show_missing_tool(
@@ -5186,11 +5185,8 @@ Acknowledge that you have received this context by replying ONLY with the single
                         );
                         return None;
                     }
-                    session.model = Some(model.id.clone());
-                    session.agent_type = model.agent_type;
-                    session.agent_mode =
-                        Self::clamp_agent_mode(model.agent_type, session.agent_mode);
-                    session.update_status();
+                    let agent_changed =
+                        session.set_agent_and_model(model.agent_type, Some(model.id.clone()));
 
                     // Add system message about the change
                     let msg = if agent_changed {

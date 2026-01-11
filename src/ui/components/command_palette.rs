@@ -51,9 +51,10 @@ impl CommandPaletteState {
     }
 
     /// Show the command palette and populate commands from keybindings
-    pub fn show(&mut self, keybindings: &KeybindingConfig) {
+    /// `supports_plan_mode` controls whether the Build/Plan mode toggle is shown
+    pub fn show(&mut self, keybindings: &KeybindingConfig, supports_plan_mode: bool) {
         self.visible = true;
-        self.commands = Self::build_commands(keybindings);
+        self.commands = Self::build_commands(keybindings, supports_plan_mode);
         self.list.reset();
         // Initialize filtered list with all commands
         self.list.filtered = (0..self.commands.len()).collect();
@@ -70,7 +71,10 @@ impl CommandPaletteState {
     }
 
     /// Build command list with keybinding lookup
-    fn build_commands(keybindings: &KeybindingConfig) -> Vec<CommandPaletteEntry> {
+    fn build_commands(
+        keybindings: &KeybindingConfig,
+        supports_plan_mode: bool,
+    ) -> Vec<CommandPaletteEntry> {
         // Build reverse lookup: Action discriminant -> key display string
         let mut keybinding_cache: HashMap<std::mem::Discriminant<Action>, String> = HashMap::new();
         let mut cache_binding = |combo: &KeyCombo, action: &Action| {
@@ -130,6 +134,13 @@ impl CommandPaletteState {
         let mut entries: Vec<CommandPaletteEntry> = palette_actions
             .into_iter()
             .filter(|a| a.show_in_palette())
+            .filter(|a| {
+                // Hide mode toggle when agent doesn't support plan mode
+                if matches!(a, Action::ToggleAgentMode) && !supports_plan_mode {
+                    return false;
+                }
+                true
+            })
             .map(|action| {
                 let key = std::mem::discriminant(&action);
                 let keybinding = keybinding_cache.get(&key).cloned();
@@ -462,5 +473,67 @@ impl CommandPalette {
 impl Default for CommandPalette {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_keybindings() -> KeybindingConfig {
+        KeybindingConfig::default()
+    }
+
+    #[test]
+    fn test_command_palette_shows_toggle_mode_when_supported() {
+        let mut state = CommandPaletteState::new();
+        state.show(&default_keybindings(), true);
+
+        let has_toggle_mode = state
+            .commands
+            .iter()
+            .any(|cmd| matches!(cmd.action, Action::ToggleAgentMode));
+
+        assert!(
+            has_toggle_mode,
+            "Toggle mode should be visible when plan mode is supported"
+        );
+    }
+
+    #[test]
+    fn test_command_palette_hides_toggle_mode_when_not_supported() {
+        let mut state = CommandPaletteState::new();
+        state.show(&default_keybindings(), false);
+
+        let has_toggle_mode = state
+            .commands
+            .iter()
+            .any(|cmd| matches!(cmd.action, Action::ToggleAgentMode));
+
+        assert!(
+            !has_toggle_mode,
+            "Toggle mode should be hidden when plan mode is not supported"
+        );
+    }
+
+    #[test]
+    fn test_command_palette_always_shows_other_commands() {
+        let mut state = CommandPaletteState::new();
+
+        // With plan mode not supported
+        state.show(&default_keybindings(), false);
+
+        // Common commands should still be present
+        let has_quit = state
+            .commands
+            .iter()
+            .any(|cmd| matches!(cmd.action, Action::Quit));
+        let has_help = state
+            .commands
+            .iter()
+            .any(|cmd| matches!(cmd.action, Action::ShowHelp));
+
+        assert!(has_quit, "Quit should always be visible");
+        assert!(has_help, "Help should always be visible");
     }
 }
