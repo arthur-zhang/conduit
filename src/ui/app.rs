@@ -95,12 +95,13 @@ fn send_app_event(
     event_tx: &mpsc::UnboundedSender<AppEvent>,
     event: AppEvent,
     context: &'static str,
-) {
+) -> bool {
     match event_tx.send(event) {
-        Ok(()) => {}
+        Ok(()) => true,
         Err(err) => {
             let event_kind = std::mem::discriminant(&err.0);
             tracing::debug!(context, event_kind = ?event_kind, "Failed to send AppEvent");
+            false
         }
     }
 }
@@ -2339,12 +2340,11 @@ impl App {
                                 );
 
                                 while let Some(event) = handle.events.recv().await {
-                                    if event_tx.send(AppEvent::Agent { tab_index, event }).is_err()
-                                    {
-                                        tracing::debug!(
-                                            tab_index,
-                                            "Failed to send AppEvent for agent stream"
-                                        );
+                                    if !send_app_event(
+                                        &event_tx,
+                                        AppEvent::Agent { tab_index, event },
+                                        "agent_stream",
+                                    ) {
                                         break;
                                     }
                                 }
@@ -2460,6 +2460,8 @@ impl App {
                                 {
                                     tracing::error!(
                                         error = %cleanup_err,
+                                        base_path = %base_path.display(),
+                                        workspace_path = %workspace.path.display(),
                                         "Failed to clean up worktree after DB error"
                                     );
                                 }
@@ -2468,6 +2470,8 @@ impl App {
                                 {
                                     tracing::error!(
                                         error = %branch_err,
+                                        base_path = %base_path.display(),
+                                        workspace_path = %workspace.path.display(),
                                         branch = %branch_name,
                                         "Failed to delete branch after DB error"
                                     );
@@ -2557,6 +2561,8 @@ impl App {
                                 {
                                     tracing::error!(
                                         error = %cleanup_err,
+                                        base_path = %base_path.display(),
+                                        workspace_path = %workspace.path.display(),
                                         "Failed to clean up worktree after DB error"
                                     );
                                 }
@@ -2565,6 +2571,8 @@ impl App {
                                 {
                                     tracing::error!(
                                         error = %branch_err,
+                                        base_path = %base_path.display(),
+                                        workspace_path = %workspace.path.display(),
                                         branch = %branch_name,
                                         "Failed to delete branch after DB error"
                                     );
@@ -2790,8 +2798,39 @@ impl App {
                         } else {
                             let project_workspaces_path = workspaces_dir.join(&repo_name);
                             if project_workspaces_path.exists() {
-                                if let Err(e) = std::fs::remove_dir_all(&project_workspaces_path) {
-                                    errors.push(format!("Failed to remove project folder: {}", e));
+                                match (
+                                    std::fs::canonicalize(&workspaces_dir),
+                                    std::fs::canonicalize(&project_workspaces_path),
+                                ) {
+                                    (Ok(canonical_root), Ok(canonical_project)) => {
+                                        if canonical_project.starts_with(&canonical_root) {
+                                            if let Err(e) =
+                                                std::fs::remove_dir_all(&project_workspaces_path)
+                                            {
+                                                errors.push(format!(
+                                                    "Failed to remove project folder: {}",
+                                                    e
+                                                ));
+                                            }
+                                        } else {
+                                            errors.push(format!(
+                                                "Skipping project folder removal outside managed root: {}",
+                                                project_workspaces_path.display()
+                                            ));
+                                        }
+                                    }
+                                    (Err(e), _) => {
+                                        errors.push(format!(
+                                            "Failed to canonicalize workspaces dir: {}",
+                                            e
+                                        ));
+                                    }
+                                    (_, Err(e)) => {
+                                        errors.push(format!(
+                                            "Failed to canonicalize project folder: {}",
+                                            e
+                                        ));
+                                    }
                                 }
                             }
                         }
