@@ -1045,10 +1045,7 @@ impl ChatView {
         }
 
         let builder = UserMessageBlockBuilder::new(width);
-        let text_style = Style::default()
-            .fg(Color::White)
-            .bg(tool_block_bg())
-            .add_modifier(Modifier::BOLD);
+        let text_style = Style::default().fg(Color::White).bg(tool_block_bg());
 
         // Top padding
         lines.push(builder.empty_line());
