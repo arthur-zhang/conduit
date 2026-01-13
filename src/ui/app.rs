@@ -5300,9 +5300,8 @@ impl App {
                             let input_tx = input_tx.clone();
                             let jsonl_to_send = jsonl.clone();
                             tokio::spawn(async move {
-                                if let Err(err) = input_tx
-                                    .send(AgentInput::ClaudeJsonl(jsonl_to_send))
-                                    .await
+                                if let Err(err) =
+                                    input_tx.send(AgentInput::ClaudeJsonl(jsonl_to_send)).await
                                 {
                                     tracing::warn!(
                                         "Failed to send tool result via streaming input: {}",
@@ -5349,9 +5348,8 @@ impl App {
                             let input_tx = input_tx.clone();
                             let jsonl_to_send = jsonl.clone();
                             tokio::spawn(async move {
-                                if let Err(err) = input_tx
-                                    .send(AgentInput::ClaudeJsonl(jsonl_to_send))
-                                    .await
+                                if let Err(err) =
+                                    input_tx.send(AgentInput::ClaudeJsonl(jsonl_to_send)).await
                                 {
                                     tracing::warn!(
                                         "Failed to send control response via streaming input: {}",
@@ -5878,8 +5876,7 @@ impl App {
                     if let Some(payload) = stdin_payload.clone() {
                         let input_tx = input_tx.clone();
                         tokio::spawn(async move {
-                            if let Err(err) =
-                                input_tx.send(AgentInput::ClaudeJsonl(payload)).await
+                            if let Err(err) = input_tx.send(AgentInput::ClaudeJsonl(payload)).await
                             {
                                 tracing::warn!("Failed to send streaming prompt: {}", err);
                             }
