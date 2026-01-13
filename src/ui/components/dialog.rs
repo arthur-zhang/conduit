@@ -19,6 +19,7 @@ pub struct DialogFrame<'a> {
     width: u16,
     height: u16,
     border_color: Color,
+    instructions: Option<Vec<(&'a str, &'a str)>>,
 }
 
 pub const DIALOG_CONTENT_PADDING_X: u16 = 1;
@@ -36,15 +37,15 @@ pub fn dialog_content_area(dialog_area: Rect) -> Rect {
 }
 
 fn apply_dialog_padding(inner: Rect) -> Rect {
+    // Only apply top padding (not bottom) so instruction bars sit at the dialog bottom.
+    // The height is reduced by the top padding amount since we're starting lower.
     Rect {
         x: inner.x.saturating_add(DIALOG_CONTENT_PADDING_X),
         y: inner.y.saturating_add(DIALOG_CONTENT_PADDING_Y),
         width: inner
             .width
             .saturating_sub(DIALOG_CONTENT_PADDING_X.saturating_mul(2)),
-        height: inner
-            .height
-            .saturating_sub(DIALOG_CONTENT_PADDING_Y.saturating_mul(2)),
+        height: inner.height.saturating_sub(DIALOG_CONTENT_PADDING_Y),
     }
 }
 
@@ -55,7 +56,13 @@ impl<'a> DialogFrame<'a> {
             width,
             height,
             border_color: accent_primary(),
+            instructions: None,
         }
+    }
+
+    pub fn instructions(mut self, instructions: Vec<(&'a str, &'a str)>) -> Self {
+        self.instructions = Some(instructions);
+        self
     }
 
     pub fn border_color(mut self, color: Color) -> Self {
@@ -99,6 +106,23 @@ impl<'a> DialogFrame<'a> {
 
         let inner = block.inner(dialog_area);
         block.render(dialog_area, buf);
+
+        // Render instructions on the bottom border if provided
+        if let Some(ref instructions) = self.instructions {
+            let bottom_y = dialog_area.y + dialog_area.height.saturating_sub(1);
+            let instructions_area = Rect {
+                x: dialog_area.x + 1,
+                y: bottom_y,
+                width: dialog_area.width.saturating_sub(2),
+                height: 1,
+            };
+            render_key_hints(
+                instructions_area,
+                buf,
+                instructions,
+                KeyHintBarStyle::instruction_bar().with_background(bg),
+            );
+        }
 
         apply_dialog_padding(inner)
     }

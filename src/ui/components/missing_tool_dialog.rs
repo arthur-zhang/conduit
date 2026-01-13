@@ -14,7 +14,7 @@ use ratatui::{
 
 use crate::util::tools::{Tool, ToolAvailability};
 
-use super::dialog::{DialogFrame, InstructionBar, StatusLine};
+use super::dialog::{DialogFrame, StatusLine};
 use super::{accent_error, accent_warning, text_muted, text_primary, text_secondary};
 
 /// Result of the missing tool dialog interaction
@@ -222,7 +222,7 @@ impl Widget for MissingToolDialog<'_> {
         }
 
         let dialog_width: u16 = 60;
-        let dialog_height: u16 = 20;
+        let dialog_height: u16 = 18;
 
         // Choose border color based on severity
         let border_color = if self.state.is_required {
@@ -231,10 +231,16 @@ impl Widget for MissingToolDialog<'_> {
             accent_warning()
         };
 
-        // Render dialog frame
+        // Render dialog frame (instructions on bottom border)
         let title = format!("Missing Tool: {}", self.state.tool.display_name());
-        let frame =
-            DialogFrame::new(&title, dialog_width, dialog_height).border_color(border_color);
+        let instructions = if self.state.is_required {
+            vec![("Enter", "Validate path"), ("Esc/q", "Quit")]
+        } else {
+            vec![("Enter", "Validate path"), ("Esc", "Skip"), ("q", "Quit")]
+        };
+        let frame = DialogFrame::new(&title, dialog_width, dialog_height)
+            .border_color(border_color)
+            .instructions(instructions);
         let inner = frame.render(area, buf);
 
         if inner.height < 10 {
@@ -386,27 +392,6 @@ impl Widget for MissingToolDialog<'_> {
         if let Some(ref error) = self.state.error {
             StatusLine::new().error(error).render(status_area, buf);
         }
-
-        // Render instruction bar at bottom
-        let instructions_y = inner.y + inner.height.saturating_sub(1);
-        let instructions = if self.state.is_required {
-            InstructionBar::new(vec![("Enter", "Validate path"), ("Esc/q", "Quit")])
-        } else {
-            InstructionBar::new(vec![
-                ("Enter", "Validate path"),
-                ("Esc", "Skip"),
-                ("q", "Quit"),
-            ])
-        };
-        instructions.render(
-            Rect {
-                x: inner.x,
-                y: instructions_y,
-                width: inner.width,
-                height: 1,
-            },
-            buf,
-        );
     }
 }
 

@@ -4102,7 +4102,7 @@ impl App {
     /// Handle click in model selector dialog
     fn handle_model_selector_click(&mut self, x: u16, y: u16) -> Option<Effect> {
         const DIALOG_WIDTH: u16 = 60;
-        const DIALOG_HEIGHT: u16 = 20;
+        const DIALOG_HEIGHT: u16 = 18;
 
         let terminal_size = crossterm::terminal::size().unwrap_or((80, 24));
         let screen = Rect::new(0, 0, terminal_size.0, terminal_size.1);
@@ -4189,7 +4189,7 @@ impl App {
 
         let dialog_width: u16 = 60;
         let list_height = self.state.project_picker_state.list.visible_len() as u16;
-        let dialog_height = 9 + list_height;
+        let dialog_height = 6 + list_height;
 
         // Calculate dialog position (centered)
         let dialog_x = screen_width.saturating_sub(dialog_width) / 2;
@@ -4204,10 +4204,10 @@ impl App {
 
         let inner = dialog_content_area(dialog_area);
 
-        // List area starts at row 3 within inner area (after search, search input, separator)
-        // Layout: [0] search label, [1] search input, [2] separator, [3..] list
-        let list_y = inner.y + 3;
-        let list_height_actual = inner.height.saturating_sub(5);
+        // List area starts at row 2 within inner area (after search_label, separator)
+        // Layout: [0] search label, [1] separator, [2..] list
+        let list_y = inner.y + 2;
+        let list_height_actual = inner.height.saturating_sub(3);
 
         // Check if click is in the list area
         if x >= inner.x

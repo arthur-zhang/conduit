@@ -9,7 +9,7 @@ use ratatui::{
 };
 use std::path::PathBuf;
 
-use super::{DialogFrame, InstructionBar, PathInputState, StatusLine};
+use super::{DialogFrame, PathInputState, StatusLine};
 
 /// State for the base directory dialog
 #[derive(Debug, Clone)]
@@ -162,8 +162,9 @@ impl BaseDirDialog {
             return;
         }
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Set Projects Directory", 56, 13);
+        // Render dialog frame (instructions render on bottom border)
+        let frame = DialogFrame::new("Set Projects Directory", 56, 11)
+            .instructions(vec![("Enter", "confirm"), ("Esc", "cancel")]);
         let inner = frame.render(area, buf);
 
         // Layout inside dialog
@@ -173,8 +174,7 @@ impl BaseDirDialog {
             Constraint::Length(3), // Input field
             Constraint::Length(1), // Status/error
             Constraint::Length(1), // Help text
-            Constraint::Length(1), // Spacing
-            Constraint::Length(1), // Instructions
+            Constraint::Min(0),    // Remaining space
         ])
         .split(inner);
 
@@ -214,10 +214,6 @@ impl BaseDirDialog {
         let help = Paragraph::new("This directory will be scanned for git projects.")
             .style(Style::default().fg(Color::DarkGray));
         help.render(chunks[4], buf);
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![("Enter", "confirm"), ("Esc", "cancel")]);
-        instructions.render(chunks[6], buf);
     }
 }
 

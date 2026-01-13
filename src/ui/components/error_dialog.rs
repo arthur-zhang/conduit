@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Paragraph, Widget, Wrap},
 };
 
-use super::dialog::{DialogFrame, InstructionBar};
+use super::dialog::DialogFrame;
 
 /// State for the error dialog
 #[derive(Debug, Clone, Default)]
@@ -134,12 +134,11 @@ impl<'a> ErrorDialog<'a> {
         // - Empty line before button (1)
         // - OK button (1)
         // - Empty line (1)
-        // - Instructions (1)
-        // - Bottom border (1)
+        // - Bottom border (1) - instructions render on border
         let message_lines = self.calculate_message_lines(dialog_width);
         let details_toggle_height = if self.state.details.is_some() { 1 } else { 0 };
         let details_content_height = self.calculate_details_lines(dialog_width);
-        let base_height: u16 = 12; // borders + padding + button + instructions
+        let base_height: u16 = 10; // borders(2) + top_padding(1) + button + spacing
         base_height + message_lines + details_toggle_height + details_content_height
     }
 }
@@ -153,9 +152,15 @@ impl Widget for ErrorDialog<'_> {
         let dialog_width: u16 = 50;
         let dialog_height = self.calculate_height(dialog_width);
 
-        // Render dialog frame with red border
+        // Render dialog frame with red border (instructions on bottom border)
+        let instructions = if self.state.details.is_some() {
+            vec![("Enter/Esc", "Dismiss"), ("d", "Details")]
+        } else {
+            vec![("Enter/Esc", "Dismiss")]
+        };
         let frame = DialogFrame::new(&self.state.title, dialog_width, dialog_height)
-            .border_color(Color::Red);
+            .border_color(Color::Red)
+            .instructions(instructions);
         let inner = frame.render(area, buf);
 
         if inner.height < 6 {
@@ -252,22 +257,5 @@ impl Widget for ErrorDialog<'_> {
                 buf,
             );
         }
-
-        // Render instruction bar at bottom
-        let instructions_y = inner.y + inner.height.saturating_sub(1);
-        let instructions = if self.state.details.is_some() {
-            InstructionBar::new(vec![("Enter/Esc", "Dismiss"), ("d", "Details")])
-        } else {
-            InstructionBar::new(vec![("Enter/Esc", "Dismiss")])
-        };
-        instructions.render(
-            Rect {
-                x: inner.x,
-                y: instructions_y,
-                width: inner.width,
-                height: 1,
-            },
-            buf,
-        );
     }
 }

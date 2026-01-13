@@ -9,7 +9,7 @@ use ratatui::{
 };
 use std::path::PathBuf;
 
-use super::{DialogFrame, InstructionBar, PathInputState, StatusLine};
+use super::{DialogFrame, PathInputState, StatusLine};
 
 /// State for the add repository dialog
 #[derive(Debug, Clone)]
@@ -164,8 +164,9 @@ impl AddRepoDialog {
             return;
         }
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Add Custom Project", 60, 13);
+        // Render dialog frame (instructions render on bottom border)
+        let frame = DialogFrame::new("Add Custom Project", 60, 11)
+            .instructions(vec![("Enter", "add"), ("Esc", "cancel")]);
         let inner = frame.render(area, buf);
 
         // Layout inside dialog
@@ -174,8 +175,7 @@ impl AddRepoDialog {
             Constraint::Length(1), // Spacing
             Constraint::Length(3), // Input field (with border)
             Constraint::Length(1), // Status/error
-            Constraint::Length(1), // Spacing
-            Constraint::Length(1), // Instructions
+            Constraint::Min(0),    // Remaining space
         ])
         .split(inner);
 
@@ -217,10 +217,6 @@ impl AddRepoDialog {
         );
         let status = StatusLine::from_result(state.error(), state.is_valid(), &success_msg);
         status.render(chunks[3], buf);
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![("Enter", "add"), ("Esc", "cancel")]);
-        instructions.render(chunks[5], buf);
     }
 }
 

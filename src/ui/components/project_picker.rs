@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 use super::{
     dialog_bg, dialog_content_area, ensure_contrast_bg, ensure_contrast_fg,
-    render_minimal_scrollbar, selected_bg, text_primary, DialogFrame, InstructionBar,
-    ScrollbarMetrics, SearchableListState,
+    render_minimal_scrollbar, selected_bg, text_primary, DialogFrame, ScrollbarMetrics,
+    SearchableListState,
 };
 
 /// A project entry (directory with .git)
@@ -72,7 +72,7 @@ impl ProjectPickerState {
         }
 
         let list_height = self.list.visible_len() as u16;
-        let dialog_height = 9 + list_height;
+        let dialog_height = 6 + list_height;
         let dialog_width: u16 = 60;
 
         let dialog_width = dialog_width.min(area.width.saturating_sub(4));
@@ -90,8 +90,10 @@ impl ProjectPickerState {
 
         let inner = dialog_content_area(dialog_area);
 
-        let list_y = inner.y + 3;
-        let list_height_actual = inner.height.saturating_sub(5);
+        // List starts after: search_label(1) + separator(1) = 2 rows
+        let list_y = inner.y + 2;
+        // List takes remaining space minus spacing(1) at bottom
+        let list_height_actual = inner.height.saturating_sub(3);
         if list_height_actual == 0 {
             return None;
         }
@@ -270,20 +272,23 @@ impl ProjectPicker {
 
         // Calculate dialog size
         let list_height = state.list.visible_len() as u16;
-        let dialog_height = 9 + list_height; // header + search + separator + list + footer
+        let dialog_height = 6 + list_height; // border(2) + top_padding(1) + search_label(1) + separator(1) + spacing(1) + list
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Select Project", 60, dialog_height);
+        // Render dialog frame (instructions render on bottom border)
+        let frame = DialogFrame::new("Select Project", 60, dialog_height).instructions(vec![
+            ("↑↓/^J^K", "Navigate"),
+            ("^F/^B", "Page"),
+            ("Enter", "Select"),
+            ("Esc", "Cancel"),
+        ]);
         let inner = frame.render(area, buf);
 
         // Layout inside dialog
         let chunks = Layout::vertical([
             Constraint::Length(1), // Search label
-            Constraint::Length(1), // Search input
             Constraint::Length(1), // Separator
             Constraint::Min(1),    // Project list
             Constraint::Length(1), // Spacing
-            Constraint::Length(1), // Instructions
         ])
         .split(inner);
 
@@ -314,10 +319,10 @@ impl ProjectPicker {
         // Render separator
         let separator = "─".repeat(inner.width as usize);
         let sep_paragraph = Paragraph::new(separator).style(Style::default().fg(Color::DarkGray));
-        sep_paragraph.render(chunks[2], buf);
+        sep_paragraph.render(chunks[1], buf);
 
         // Render project list
-        let list_area = chunks[3];
+        let list_area = chunks[2];
         if state.list.filtered.is_empty() {
             let empty_msg = if state.projects.is_empty() {
                 "No git projects found in this directory"
@@ -419,15 +424,6 @@ impl ProjectPicker {
                 state.list.scroll_offset,
             );
         }
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![
-            ("↑↓/^J^K", "Navigate"),
-            ("^F/^B", "Page"),
-            ("Enter", "Select"),
-            ("Esc", "Cancel"),
-        ]);
-        instructions.render(chunks[5], buf);
     }
 }
 

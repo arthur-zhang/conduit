@@ -13,8 +13,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{
     accent_primary, bg_highlight, dialog_bg, ensure_contrast_bg, ensure_contrast_fg,
-    render_minimal_scrollbar, text_muted, text_primary, DialogFrame, InstructionBar,
-    SearchableListState,
+    render_minimal_scrollbar, text_muted, text_primary, DialogFrame, SearchableListState,
 };
 use crate::config::keys::{KeyCombo, KeybindingConfig};
 use crate::ui::action::Action;
@@ -269,18 +268,22 @@ impl CommandPalette {
         // Calculate dialog dimensions
         let dialog_width = 60u16.min(area.width.saturating_sub(4));
         let list_height = state.list.filtered.len().min(12) as u16;
-        let dialog_height = 7 + list_height.max(1); // search + separator + list + separator + instructions
+        let dialog_height = 5 + list_height.max(1); // border(2) + top_padding(1) + search(1) + separator(1) + list
 
-        // Use DialogFrame for consistent styling
-        let frame = DialogFrame::new("Command Palette", dialog_width, dialog_height);
+        // Use DialogFrame for consistent styling (instructions render on bottom border)
+        let frame =
+            DialogFrame::new("Command Palette", dialog_width, dialog_height).instructions(vec![
+                ("\u{2191}\u{2193}", "Navigate"),
+                ("Enter", "Execute"),
+                ("Esc", "Cancel"),
+            ]);
         let inner = frame.render(area, buf);
 
-        // Layout: search input, separator, list, instructions
+        // Layout: search input, separator, list
         let chunks = Layout::vertical([
             Constraint::Length(1), // Search input with ">" prompt
             Constraint::Length(1), // Separator
             Constraint::Min(1),    // Command list
-            Constraint::Length(1), // Instructions
         ])
         .split(inner);
 
@@ -292,14 +295,6 @@ impl CommandPalette {
 
         // Command list
         self.render_list(chunks[2], buf, state);
-
-        // Instructions
-        let instructions = InstructionBar::new(vec![
-            ("\u{2191}\u{2193}", "Navigate"),
-            ("Enter", "Execute"),
-            ("Esc", "Cancel"),
-        ]);
-        instructions.render(chunks[3], buf);
     }
 
     fn render_search(&self, area: Rect, buf: &mut Buffer, state: &CommandPaletteState) {

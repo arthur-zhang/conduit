@@ -17,7 +17,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use super::{
     accent_primary, bg_highlight, dialog_bg, ensure_contrast_bg, ensure_contrast_fg,
     render_minimal_scrollbar, text_muted, text_primary, text_secondary, DialogFrame,
-    InstructionBar, DIALOG_CONTENT_PADDING_Y,
+    DIALOG_CONTENT_PADDING_Y,
 };
 use crate::ui::components::theme::{
     current_theme_name, list_themes, load_theme_by_name, load_theme_from_path, ThemeInfo,
@@ -33,7 +33,7 @@ pub enum ThemePickerItem {
 
 const PREVIEW_DEBOUNCE: Duration = Duration::from_millis(150);
 const DIALOG_WIDTH: u16 = 50;
-const DIALOG_HEIGHT: u16 = 20;
+const DIALOG_HEIGHT: u16 = 18;
 
 #[derive(Debug, Clone)]
 struct PendingPreview {
@@ -134,7 +134,7 @@ impl ThemePickerState {
     /// Update the list viewport height (based on the screen size).
     pub fn update_viewport(&mut self, area: Rect) {
         let dialog_height = DIALOG_HEIGHT.min(area.height.saturating_sub(2));
-        let inner_height = dialog_height.saturating_sub(2 + DIALOG_CONTENT_PADDING_Y * 2);
+        let inner_height = dialog_height.saturating_sub(2 + DIALOG_CONTENT_PADDING_Y);
         let list_height = inner_height.saturating_sub(3).max(1);
         self.max_visible = list_height as usize;
         self.ensure_visible();
@@ -662,21 +662,24 @@ impl Widget for ThemePicker<'_> {
         let dialog_width = DIALOG_WIDTH;
         let dialog_height = DIALOG_HEIGHT;
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Theme", dialog_width, dialog_height);
+        // Render dialog frame (instructions render on bottom border)
+        let frame = DialogFrame::new("Theme", dialog_width, dialog_height).instructions(vec![
+            ("Enter", "Select"),
+            ("Esc", "Cancel"),
+            ("\u{2191}\u{2193}", "Navigate"),
+        ]);
         let inner = frame.render(area, buf);
 
         if inner.height < 5 {
             return;
         }
 
-        // Layout: search box, separator, list, instructions
+        // Layout: search box, separator, list
         let chunks = Layout::default()
             .constraints([
                 Constraint::Length(1), // Search
                 Constraint::Length(1), // Separator
                 Constraint::Min(1),    // List
-                Constraint::Length(1), // Instructions
             ])
             .split(inner);
 
@@ -688,14 +691,6 @@ impl Widget for ThemePicker<'_> {
 
         // Render theme list
         self.render_list(chunks[2], buf);
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![
-            ("Enter", "Select"),
-            ("Esc", "Cancel"),
-            ("\u{2191}\u{2193}", "Navigate"),
-        ]);
-        instructions.render(chunks[3], buf);
     }
 }
 

@@ -12,7 +12,7 @@ use ratatui::{
 use super::{
     agent_claude, agent_codex, agent_gemini, bg_highlight, dialog_bg, dialog_content_area,
     ensure_contrast_bg, ensure_contrast_fg, render_minimal_scrollbar, selected_bg, text_muted,
-    text_primary, DialogFrame, InstructionBar, ScrollbarMetrics, SearchableListState,
+    text_primary, DialogFrame, ScrollbarMetrics, SearchableListState,
 };
 use crate::agent::AgentType;
 use crate::session::ExternalSession;
@@ -382,8 +382,14 @@ impl SessionImportPicker {
         let dialog_height =
             (area.height * DIALOG_HEIGHT_PERCENT / 100).clamp(DIALOG_MIN_HEIGHT, DIALOG_MAX_HEIGHT);
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Import Session", dialog_width, dialog_height);
+        // Render dialog frame (instructions on bottom border)
+        let frame =
+            DialogFrame::new("Import Session", dialog_width, dialog_height).instructions(vec![
+                ("↑↓", "Navigate"),
+                ("Tab", "Filter"),
+                ("Enter", "Import"),
+                ("Esc", "Cancel"),
+            ]);
         let inner = frame.render(area, buf);
 
         // Layout inside dialog
@@ -393,7 +399,6 @@ impl SessionImportPicker {
             Constraint::Length(1), // Separator
             Constraint::Min(1),    // Session list
             Constraint::Length(1), // Spacing
-            Constraint::Length(1), // Instructions
         ])
         .split(inner);
 
@@ -455,15 +460,6 @@ impl SessionImportPicker {
         } else {
             self.render_session_list(list_area, buf, state);
         }
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![
-            ("↑↓", "Navigate"),
-            ("Tab", "Filter"),
-            ("Enter", "Import"),
-            ("Esc", "Cancel"),
-        ]);
-        instructions.render(chunks[5], buf);
     }
 
     fn render_tab_bar(&self, area: Rect, buf: &mut Buffer, state: &SessionImportPickerState) {

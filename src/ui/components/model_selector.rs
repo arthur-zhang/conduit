@@ -15,7 +15,7 @@ use crate::agent::{AgentType, ModelInfo, ModelRegistry};
 use crate::ui::components::{
     accent_primary, bg_highlight, dialog_bg, dialog_content_area, ensure_contrast_bg,
     ensure_contrast_fg, render_minimal_scrollbar, text_muted, text_primary, text_secondary,
-    DialogFrame, InstructionBar, TextInputState,
+    DialogFrame, TextInputState,
 };
 
 /// Represents an item in the model selector (either a section header or a model)
@@ -45,7 +45,7 @@ impl DefaultModelSelection {
 }
 
 const DIALOG_WIDTH: u16 = 60;
-const DIALOG_HEIGHT: u16 = 20;
+const DIALOG_HEIGHT: u16 = 18;
 
 /// State for the model selector dialog
 #[derive(Debug, Clone)]
@@ -446,7 +446,6 @@ impl ModelSelectorState {
             Constraint::Length(1), // Search
             Constraint::Length(1), // Separator
             Constraint::Min(1),    // List
-            Constraint::Length(1), // Instructions
         ])
         .split(inner);
 
@@ -455,7 +454,6 @@ impl ModelSelectorState {
             search_area: chunks[0],
             separator_area: chunks[1],
             list_area: chunks[2],
-            instructions_area: chunks[3],
         })
     }
 }
@@ -465,7 +463,6 @@ struct ModelSelectorLayout {
     search_area: Rect,
     separator_area: Rect,
     list_area: Rect,
-    instructions_area: Rect,
 }
 
 /// Model selector dialog widget
@@ -486,8 +483,14 @@ impl ModelSelector {
             return;
         };
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Model", layout.dialog_area.width, layout.dialog_area.height);
+        // Render dialog frame (instructions render on bottom border)
+        let frame = DialogFrame::new("Model", layout.dialog_area.width, layout.dialog_area.height)
+            .instructions(vec![
+                ("Enter", "Select"),
+                ("M-d", "Default"),
+                ("Esc", "Cancel"),
+                ("\u{2191}\u{2193}", "Navigate"),
+            ]);
         let inner = frame.render(area, buf);
 
         if inner.height < 4 {
@@ -502,15 +505,6 @@ impl ModelSelector {
 
         // Render list
         Self::render_list(state, layout.list_area, buf);
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![
-            ("Enter", "Select"),
-            ("M-d", "Default"),
-            ("Esc", "Cancel"),
-            ("\u{2191}\u{2193}", "Navigate"),
-        ]);
-        instructions.render(layout.instructions_area, buf);
     }
 
     fn render_search(state: &ModelSelectorState, area: Rect, buf: &mut Buffer) {

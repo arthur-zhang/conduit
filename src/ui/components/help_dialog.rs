@@ -15,8 +15,7 @@ use crate::config::{KeyContext, KeybindingConfig};
 use crate::ui::action::Action;
 
 use super::{
-    dialog_content_area, render_minimal_scrollbar, DialogFrame, InstructionBar, ScrollbarMetrics,
-    TextInputState,
+    dialog_content_area, render_minimal_scrollbar, DialogFrame, ScrollbarMetrics, TextInputState,
 };
 
 /// A keybinding entry for display
@@ -358,20 +357,25 @@ impl HelpDialog {
         let dialog_height = (area.height * 80 / 100).clamp(15, 35);
 
         let frame = DialogFrame::new("Help - Keybindings", dialog_width, dialog_height)
-            .border_color(Color::Cyan);
+            .border_color(Color::Cyan)
+            .instructions(vec![
+                ("Esc/q", "Close"),
+                ("↑↓/jk", "Scroll"),
+                ("PgUp/Dn", "Page"),
+                ("Type", "Search"),
+            ]);
         let inner = frame.render(area, buf);
 
         if inner.height < 5 {
             return;
         }
 
-        // Layout: search bar at top, content below, instructions at bottom
+        // Layout: search bar at top, content below
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // Search bar with border
                 Constraint::Min(3),    // Content
-                Constraint::Length(1), // Instructions
             ])
             .split(inner);
 
@@ -396,15 +400,6 @@ impl HelpDialog {
             height: chunks[1].height,
         };
         self.render_scrollbar(scrollbar_area, buf, state);
-
-        // Instructions bar
-        let instructions = InstructionBar::new(vec![
-            ("Esc/q", "Close"),
-            ("↑↓/jk", "Scroll"),
-            ("PgUp/Dn", "Page"),
-            ("Type", "Search"),
-        ]);
-        instructions.render(chunks[2], buf);
     }
 
     fn render_search_bar(&self, area: Rect, buf: &mut Buffer, state: &HelpDialogState) {

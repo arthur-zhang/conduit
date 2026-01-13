@@ -11,7 +11,7 @@ use ratatui::{
 };
 use uuid::Uuid;
 
-use super::dialog::{DialogFrame, InstructionBar};
+use super::dialog::DialogFrame;
 use crate::git::PrPreflightResult;
 
 /// Confirmation type determines the dialog's appearance and urgency level
@@ -231,15 +231,14 @@ impl<'a> ConfirmationDialog<'a> {
         // - Empty line before buttons (1)
         // - Buttons (1)
         // - Empty line (1)
-        // - Instructions (1)
-        // - Bottom border (1)
+        // - Bottom border (1) - instructions render on border
         let message_lines = self.calculate_message_lines(dialog_width);
         let warnings_height = if self.state.warnings.is_empty() {
             0
         } else {
             self.state.warnings.len() as u16 + 1 // warnings + spacing before them
         };
-        let base_height: u16 = 12; // borders + padding + buttons + instructions
+        let base_height: u16 = 10; // borders(2) + top_padding(1) + spacing + buttons + spacing
         base_height + message_lines + warnings_height
     }
 }
@@ -256,11 +255,12 @@ impl Widget for ConfirmationDialog<'_> {
         // Loading state - show compact dialog with spinner
         if self.state.loading {
             let dialog_width: u16 = 50;
-            let dialog_height: u16 = 9; // Compact: border + padding + spinner + padding + instructions + border
+            let dialog_height: u16 = 7; // Compact: border(2) + top_padding(1) + spinner area
 
-            // Render dialog frame
+            // Render dialog frame (instructions on bottom border)
             let frame = DialogFrame::new(&self.state.title, dialog_width, dialog_height)
-                .border_color(Color::Cyan);
+                .border_color(Color::Cyan)
+                .instructions(vec![("Esc", "Cancel")]);
             let inner = frame.render(area, buf);
 
             if inner.height < 3 {
@@ -291,19 +291,6 @@ impl Widget for ConfirmationDialog<'_> {
                 buf,
             );
 
-            // Render instruction bar at bottom (only Esc to cancel)
-            let instructions_y = inner.y + inner.height.saturating_sub(1);
-            let instructions = InstructionBar::new(vec![("Esc", "Cancel")]);
-            instructions.render(
-                Rect {
-                    x: inner.x,
-                    y: instructions_y,
-                    width: inner.width,
-                    height: 1,
-                },
-                buf,
-            );
-
             return;
         }
 
@@ -311,9 +298,15 @@ impl Widget for ConfirmationDialog<'_> {
         let dialog_width: u16 = 50;
         let dialog_height = self.calculate_height(dialog_width);
 
-        // Render dialog frame
+        // Render dialog frame (instructions on bottom border)
         let frame = DialogFrame::new(&self.state.title, dialog_width, dialog_height)
-            .border_color(self.state.confirmation_type.border_color());
+            .border_color(self.state.confirmation_type.border_color())
+            .instructions(vec![
+                ("←/→", "Select"),
+                ("Enter", "Confirm"),
+                ("Esc", "Cancel"),
+                ("y/n", "Quick"),
+            ]);
         let inner = frame.render(area, buf);
 
         if inner.height < 6 {
@@ -372,8 +365,8 @@ impl Widget for ConfirmationDialog<'_> {
             }
         }
 
-        // Render buttons at bottom (with spacing before instructions)
-        let buttons_y = inner.y + inner.height.saturating_sub(4);
+        // Render buttons at bottom
+        let buttons_y = inner.y + inner.height.saturating_sub(2);
         if buttons_y >= inner.y + y_offset {
             let cancel_style = if self.state.is_cancel_selected() {
                 Style::default()
@@ -410,23 +403,5 @@ impl Widget for ConfirmationDialog<'_> {
                 buf,
             );
         }
-
-        // Render instruction bar at bottom
-        let instructions_y = inner.y + inner.height.saturating_sub(1);
-        let instructions = InstructionBar::new(vec![
-            ("←/→", "Select"),
-            ("Enter", "Confirm"),
-            ("Esc", "Cancel"),
-            ("y/n", "Quick"),
-        ]);
-        instructions.render(
-            Rect {
-                x: inner.x,
-                y: instructions_y,
-                width: inner.width,
-                height: 1,
-            },
-            buf,
-        );
     }
 }

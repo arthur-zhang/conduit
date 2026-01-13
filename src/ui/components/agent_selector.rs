@@ -13,7 +13,7 @@ use crate::util::{Tool, ToolAvailability};
 
 use super::{
     dialog_bg, ensure_contrast_bg, ensure_contrast_fg, selected_bg, text_muted, text_primary,
-    DialogFrame, InstructionBar,
+    DialogFrame,
 };
 
 /// State for the agent selector dialog
@@ -209,8 +209,12 @@ impl AgentSelector {
             return;
         }
 
-        // Render dialog frame
-        let frame = DialogFrame::new("Select Agent", 44, 11);
+        // Render dialog frame (instructions on bottom border)
+        let frame = DialogFrame::new("Select Agent", 44, 10).instructions(vec![
+            ("↑↓", "select"),
+            ("Enter", "confirm"),
+            ("Esc", "cancel"),
+        ]);
         let inner = frame.render(area, buf);
 
         // Layout inside dialog
@@ -220,7 +224,6 @@ impl AgentSelector {
             Constraint::Length(2), // Claude option
             Constraint::Length(2), // Codex option
             Constraint::Length(2), // Gemini option
-            Constraint::Length(1), // Instructions
         ])
         .split(inner);
 
@@ -278,14 +281,6 @@ impl AgentSelector {
                 }
             }
         }
-
-        // Render instructions
-        let instructions = InstructionBar::new(vec![
-            ("↑↓", "select"),
-            ("Enter", "confirm"),
-            ("Esc", "cancel"),
-        ]);
-        instructions.render(chunks[5], buf);
     }
 }
 

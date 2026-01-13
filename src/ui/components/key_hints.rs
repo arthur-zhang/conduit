@@ -70,6 +70,12 @@ impl KeyHintBarStyle {
             background: None,
         }
     }
+
+    /// Set the background color
+    pub fn with_background(mut self, bg: Color) -> Self {
+        self.background = Some(bg);
+        self
+    }
 }
 
 pub fn render_key_hints(
