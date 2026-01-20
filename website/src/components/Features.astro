@@ -36,6 +36,18 @@ const features = [
     icon: "git",
     color: "var(--color-accent-error)",
   },
+  {
+    title: "Web Interface",
+    description: "Access your Conduit sessions from any browser. Full feature parity with the TUI.",
+    icon: "web",
+    color: "var(--color-accent-info)",
+  },
+  {
+    title: "PR Review Integration",
+    description: "Ingest CodeRabbit feedback directly into your sessions for seamless code review.",
+    icon: "review",
+    color: "var(--color-accent-tertiary)",
+  },
 ]
 ---
 
@@ -97,6 +109,16 @@ const features = [
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
               </svg>
             )}
+            {feature.icon === "web" && (
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
+            )}
+            {feature.icon === "review" && (
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+            )}
           </div>
 
           <!-- Content -->
@@ -129,7 +151,7 @@ const features = [
       </h2>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <!-- Claude Code -->
       <div class="terminal-frame overflow-hidden">
         <div class="terminal-buttons">
@@ -138,18 +160,17 @@ const features = [
           <div class="terminal-button terminal-button-maximize"></div>
           <span class="ml-4 text-[var(--color-agent-claude)] text-xs font-mono">Claude Code</span>
         </div>
-        <div class="p-6">
-          <div class="flex items-center gap-3 mb-4">
+        <div class="p-5">
+          <div class="flex items-center gap-3 mb-3">
             <div class="w-3 h-3 rounded-full bg-[var(--color-agent-claude)]"></div>
             <span class="text-[var(--color-text-bright)] font-mono text-sm">Claude</span>
           </div>
           <p class="text-[var(--color-text-secondary)] text-sm font-mono leading-relaxed">
-            Anthropic's powerful coding assistant with deep reasoning capabilities,
-            multi-file editing, and sophisticated code understanding.
+            Anthropic's powerful coding assistant with deep reasoning and multi-file editing.
           </p>
-          <div class="mt-4 flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-            <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">claude-3.5-sonnet</span>
-            <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">claude-3-opus</span>
+          <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">sonnet</span>
+            <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">opus</span>
           </div>
         </div>
       </div>
@@ -162,18 +183,88 @@ const features = [
           <div class="terminal-button terminal-button-maximize"></div>
           <span class="ml-4 text-[var(--color-agent-codex)] text-xs font-mono">Codex CLI</span>
         </div>
-        <div class="p-6">
-          <div class="flex items-center gap-3 mb-4">
+        <div class="p-5">
+          <div class="flex items-center gap-3 mb-3">
             <div class="w-3 h-3 rounded-full bg-[var(--color-agent-codex)]"></div>
             <span class="text-[var(--color-text-bright)] font-mono text-sm">Codex</span>
           </div>
           <p class="text-[var(--color-text-secondary)] text-sm font-mono leading-relaxed">
-            OpenAI's terminal-native coding agent with fast iteration speed,
-            shell integration, and autonomous task execution.
+            OpenAI's terminal-native coding agent with fast iteration and shell integration.
           </p>
-          <div class="mt-4 flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+          <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">o4-mini</span>
             <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">gpt-4.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gemini CLI -->
+      <div class="terminal-frame overflow-hidden">
+        <div class="terminal-buttons">
+          <div class="terminal-button terminal-button-close"></div>
+          <div class="terminal-button terminal-button-minimize"></div>
+          <div class="terminal-button terminal-button-maximize"></div>
+          <span class="ml-4 text-[#4285F4] text-xs font-mono">Gemini CLI</span>
+        </div>
+        <div class="p-5">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-3 h-3 rounded-full bg-[#4285F4]"></div>
+            <span class="text-[var(--color-text-bright)] font-mono text-sm">Gemini</span>
+          </div>
+          <p class="text-[var(--color-text-secondary)] text-sm font-mono leading-relaxed">
+            Google's AI coding assistant with multimodal understanding and code generation.
+          </p>
+          <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">2.5-pro</span>
+            <span class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]">2.5-flash</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Coming Soon -->
+    <div class="mt-12">
+      <p class="text-[var(--color-text-muted)] font-mono text-sm mb-6 text-center">
+        <span class="text-[var(--color-accent-warning)]">//</span> COMING SOON
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+        <!-- OpenCode -->
+        <div class="terminal-frame overflow-hidden opacity-60">
+          <div class="terminal-buttons">
+            <div class="terminal-button terminal-button-close"></div>
+            <div class="terminal-button terminal-button-minimize"></div>
+            <div class="terminal-button terminal-button-maximize"></div>
+            <span class="ml-4 text-[#10B981] text-xs font-mono">OpenCode</span>
+          </div>
+          <div class="p-5">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-3 h-3 rounded-full bg-[#10B981]"></div>
+              <span class="text-[var(--color-text-bright)] font-mono text-sm">OpenCode</span>
+              <span class="px-2 py-0.5 rounded text-xs bg-[var(--color-accent-warning)] text-[var(--color-bg-base)] font-bold">SOON</span>
+            </div>
+            <p class="text-[var(--color-text-secondary)] text-sm font-mono leading-relaxed">
+              Open-source AI coding assistant with local model support.
+            </p>
+          </div>
+        </div>
+
+        <!-- Copilot CLI -->
+        <div class="terminal-frame overflow-hidden opacity-60">
+          <div class="terminal-buttons">
+            <div class="terminal-button terminal-button-close"></div>
+            <div class="terminal-button terminal-button-minimize"></div>
+            <div class="terminal-button terminal-button-maximize"></div>
+            <span class="ml-4 text-[#6366F1] text-xs font-mono">Copilot CLI</span>
+          </div>
+          <div class="p-5">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-3 h-3 rounded-full bg-[#6366F1]"></div>
+              <span class="text-[var(--color-text-bright)] font-mono text-sm">Copilot</span>
+              <span class="px-2 py-0.5 rounded text-xs bg-[var(--color-accent-warning)] text-[var(--color-bg-base)] font-bold">SOON</span>
+            </div>
+            <p class="text-[var(--color-text-secondary)] text-sm font-mono leading-relaxed">
+              GitHub's AI pair programmer with deep repository context.
+            </p>
           </div>
         </div>
       </div>
