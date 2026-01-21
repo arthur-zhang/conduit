@@ -1,10 +1,12 @@
 pub mod agent;
 pub mod config;
+pub mod core;
 pub mod data;
 pub mod git;
 pub mod session;
 pub mod ui;
 pub mod util;
+pub mod web;
 
 pub use agent::{
     AgentError, AgentEvent, AgentHandle, AgentMode, AgentRunner, AgentStartConfig, AgentType,
@@ -13,6 +15,7 @@ pub use agent::{
     SessionStatus,
 };
 pub use config::Config;
+pub use core::ConduitCore;
 pub use data::{Database, Repository, RepositoryStore, Workspace, WorkspaceStore};
 pub use git::{
     CheckState, CheckStatus, MergeReadiness, MergeableStatus, PrManager, PrPreflightResult,

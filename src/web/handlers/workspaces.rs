@@ -1,0 +1,756 @@
+//! Workspace handlers for the Conduit web API.
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use uuid::Uuid;
+
+use crate::core::services::{ServiceError, SessionService};
+use crate::data::Workspace;
+use crate::git::PrManager;
+use crate::util::names::{generate_branch_name, generate_workspace_name, get_git_username};
+use crate::web::error::WebError;
+use crate::web::handlers::sessions::SessionResponse;
+use crate::web::state::WebAppState;
+use crate::web::status_types::{PrStatusResponse, WorkspaceStatusResponse};
+
+/// Response for a single workspace.
+#[derive(Debug, Serialize)]
+pub struct WorkspaceResponse {
+    pub id: Uuid,
+    pub repository_id: Uuid,
+    pub name: String,
+    pub branch: String,
+    pub path: String,
+    pub created_at: String,
+    pub last_accessed: String,
+    pub is_default: bool,
+    pub archived_at: Option<String>,
+}
+
+impl From<Workspace> for WorkspaceResponse {
+    fn from(ws: Workspace) -> Self {
+        Self {
+            id: ws.id,
+            repository_id: ws.repository_id,
+            name: ws.name,
+            branch: ws.branch,
+            path: ws.path.to_string_lossy().to_string(),
+            created_at: ws.created_at.to_rfc3339(),
+            last_accessed: ws.last_accessed.to_rfc3339(),
+            is_default: ws.is_default,
+            archived_at: ws.archived_at.map(|d| d.to_rfc3339()),
+        }
+    }
+}
+
+/// Response for listing workspaces.
+#[derive(Debug, Serialize)]
+pub struct ListWorkspacesResponse {
+    pub workspaces: Vec<WorkspaceResponse>,
+}
+
+/// PR preflight response for a workspace.
+#[derive(Debug, Serialize)]
+pub struct PrPreflightResponse {
+    pub gh_installed: bool,
+    pub gh_authenticated: bool,
+    pub on_main_branch: bool,
+    pub branch_name: String,
+    pub target_branch: String,
+    pub uncommitted_count: usize,
+    pub has_upstream: bool,
+    pub existing_pr: Option<PrStatusResponse>,
+}
+
+/// PR create response returns prompt to send to agent.
+#[derive(Debug, Serialize)]
+pub struct PrCreateResponse {
+    pub preflight: PrPreflightResponse,
+    pub prompt: String,
+}
+
+/// Archive preflight response for a workspace.
+#[derive(Debug, Serialize)]
+pub struct ArchivePreflightResponse {
+    pub branch_name: String,
+    pub is_dirty: bool,
+    pub is_merged: bool,
+    pub commits_ahead: usize,
+    pub commits_behind: usize,
+    pub warnings: Vec<String>,
+    pub severity: String,
+    pub error: Option<String>,
+}
+
+/// Request to create a new workspace.
+#[derive(Debug, Deserialize)]
+pub struct CreateWorkspaceRequest {
+    pub name: String,
+    pub branch: String,
+    pub path: String,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+/// List all workspaces.
+pub async fn list_workspaces(
+    State(state): State<WebAppState>,
+) -> Result<Json<ListWorkspacesResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspaces = store
+        .get_all()
+        .map_err(|e| WebError::Internal(format!("Failed to list workspaces: {}", e)))?;
+
+    Ok(Json(ListWorkspacesResponse {
+        workspaces: workspaces
+            .into_iter()
+            .map(WorkspaceResponse::from)
+            .collect(),
+    }))
+}
+
+/// List workspaces for a specific repository.
+pub async fn list_repository_workspaces(
+    State(state): State<WebAppState>,
+    Path(repository_id): Path<Uuid>,
+) -> Result<Json<ListWorkspacesResponse>, WebError> {
+    let core = state.core().await;
+
+    // First check if repository exists
+    let repo_store = core
+        .repo_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let _repo = repo_store
+        .get_by_id(repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to get repository: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Repository {} not found", repository_id)))?;
+
+    // Get workspaces for the repository
+    let workspace_store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspaces = workspace_store
+        .get_by_repository(repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to list workspaces: {}", e)))?;
+
+    Ok(Json(ListWorkspacesResponse {
+        workspaces: workspaces
+            .into_iter()
+            .map(WorkspaceResponse::from)
+            .collect(),
+    }))
+}
+
+/// Get a single workspace by ID.
+pub async fn get_workspace(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<WorkspaceResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    Ok(Json(WorkspaceResponse::from(workspace)))
+}
+
+/// Preflight archive checks for a workspace.
+pub async fn get_workspace_archive_preflight(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ArchivePreflightResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    let worktree_manager = core.worktree_manager();
+    let mut warnings = Vec::new();
+    let mut error = None;
+    let mut is_dirty = false;
+    let mut is_merged = true;
+    let mut commits_ahead = 0;
+    let mut commits_behind = 0;
+
+    match worktree_manager.get_branch_status(&workspace.path) {
+        Ok(status) => {
+            is_dirty = status.is_dirty;
+            is_merged = status.is_merged;
+            commits_ahead = status.commits_ahead;
+            commits_behind = status.commits_behind;
+
+            if status.is_dirty {
+                if let Some(desc) = status.dirty_description {
+                    warnings.push(desc);
+                } else {
+                    warnings.push("Uncommitted changes".to_string());
+                }
+            }
+
+            if !status.is_merged {
+                if status.commits_ahead > 0 {
+                    warnings.push(format!(
+                        "Branch not merged ({} commits ahead)",
+                        status.commits_ahead
+                    ));
+                } else {
+                    warnings.push("Branch not merged into main".to_string());
+                }
+            }
+
+            if status.commits_behind > 0 {
+                warnings.push(format!(
+                    "Branch is {} commits behind main",
+                    status.commits_behind
+                ));
+            }
+        }
+        Err(err) => {
+            error = Some(format!("Failed to read git status: {}", err));
+            warnings.push("Unable to read git status".to_string());
+        }
+    }
+
+    let severity = if is_dirty && !is_merged {
+        "danger"
+    } else if is_dirty || !is_merged || commits_behind > 0 {
+        "warning"
+    } else {
+        "info"
+    };
+
+    Ok(Json(ArchivePreflightResponse {
+        branch_name: workspace.branch.clone(),
+        is_dirty,
+        is_merged,
+        commits_ahead,
+        commits_behind,
+        warnings,
+        severity: severity.to_string(),
+        error,
+    }))
+}
+
+/// Create a new workspace for a repository.
+pub async fn create_workspace(
+    State(state): State<WebAppState>,
+    Path(repository_id): Path<Uuid>,
+    Json(req): Json<CreateWorkspaceRequest>,
+) -> Result<(StatusCode, Json<WorkspaceResponse>), WebError> {
+    // Validate request
+    if req.name.is_empty() {
+        return Err(WebError::BadRequest(
+            "Workspace name is required".to_string(),
+        ));
+    }
+
+    if req.branch.is_empty() {
+        return Err(WebError::BadRequest("Branch is required".to_string()));
+    }
+
+    if req.path.is_empty() {
+        return Err(WebError::BadRequest("Path is required".to_string()));
+    }
+
+    let core = state.core().await;
+
+    // Check if repository exists
+    let repo_store = core
+        .repo_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let _repo = repo_store
+        .get_by_id(repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to get repository: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Repository {} not found", repository_id)))?;
+
+    // Create workspace model
+    let workspace = if req.is_default {
+        Workspace::new_default(
+            repository_id,
+            &req.name,
+            &req.branch,
+            PathBuf::from(&req.path),
+        )
+    } else {
+        Workspace::new(
+            repository_id,
+            &req.name,
+            &req.branch,
+            PathBuf::from(&req.path),
+        )
+    };
+
+    // Save to database
+    let workspace_store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    workspace_store
+        .create(&workspace)
+        .map_err(|e| WebError::Internal(format!("Failed to create workspace: {}", e)))?;
+
+    let response = WorkspaceResponse::from(workspace.clone());
+    state
+        .status_manager()
+        .register_workspace(workspace.id, workspace.path.clone());
+    state.status_manager().refresh_workspace(workspace.id);
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// Archive a workspace (soft delete).
+pub async fn archive_workspace(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, WebError> {
+    let core = state.core().await;
+    let workspace_store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let repo_store = core
+        .repo_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let session_store = core
+        .session_tab_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    // Check if workspace exists
+    let workspace = workspace_store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    let repo = repo_store
+        .get_by_id(workspace.repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to get repository: {}", e)))?
+        .ok_or_else(|| {
+            WebError::NotFound(format!("Repository {} not found", workspace.repository_id))
+        })?;
+
+    let worktree_manager = core.worktree_manager();
+    let mut warnings = Vec::new();
+    let mut archived_commit_sha = None;
+
+    if let Some(base_path) = repo.base_path {
+        match worktree_manager.get_branch_sha(&base_path, &workspace.branch) {
+            Ok(commit_sha) => {
+                archived_commit_sha = Some(commit_sha);
+            }
+            Err(err) => {
+                warnings.push(format!("Failed to read branch SHA: {}", err));
+            }
+        }
+
+        if let Err(err) = worktree_manager.remove_worktree(&base_path, &workspace.path) {
+            warnings.push(format!("Failed to remove worktree: {}", err));
+        }
+
+        if let Err(err) = worktree_manager.delete_branch(&base_path, &workspace.branch) {
+            warnings.push(format!(
+                "Failed to delete branch '{}': {}",
+                workspace.branch, err
+            ));
+        }
+    } else {
+        warnings.push("Repository has no base path; worktree not removed".to_string());
+    }
+
+    // Archive the workspace
+    workspace_store
+        .archive(id, archived_commit_sha)
+        .map_err(|e| WebError::Internal(format!("Failed to archive workspace: {}", e)))?;
+
+    if let Err(e) = session_store.set_open_by_workspace(id, false) {
+        tracing::warn!(error = %e, "Failed to close sessions for archived workspace");
+    }
+
+    state.status_manager().remove_workspace(id);
+
+    if !warnings.is_empty() {
+        tracing::warn!(
+            workspace_id = %id,
+            warnings = ?warnings,
+            "Workspace archived with warnings"
+        );
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Delete a workspace.
+pub async fn delete_workspace(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    // Check if workspace exists
+    let _workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    // Delete workspace
+    store
+        .delete(id)
+        .map_err(|e| WebError::Internal(format!("Failed to delete workspace: {}", e)))?;
+
+    state.status_manager().remove_workspace(id);
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Auto-create a workspace with generated name/branch.
+///
+/// This endpoint mirrors the TUI's workspace creation flow:
+/// 1. Generates a unique workspace name (adjective-noun)
+/// 2. Generates a branch name (username/workspace-name)
+/// 3. Creates a git worktree
+/// 4. Saves the workspace to the database
+pub async fn auto_create_workspace(
+    State(state): State<WebAppState>,
+    Path(repository_id): Path<Uuid>,
+) -> Result<(StatusCode, Json<WorkspaceResponse>), WebError> {
+    // Get write access to core for worktree operations
+    let core = state.core_mut().await;
+
+    // Load repository
+    let repo_store = core
+        .repo_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let repo = repo_store
+        .get_by_id(repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to get repository: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Repository {} not found", repository_id)))?;
+
+    // Get existing workspace names (including archived) to avoid conflicts
+    let workspace_store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let existing_names = workspace_store
+        .get_all_names_by_repository(repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace names: {}", e)))?;
+
+    // Generate unique workspace name
+    let workspace_name = generate_workspace_name(&existing_names);
+
+    // Generate branch name (username/workspace-name)
+    let username = get_git_username();
+    let branch_name = generate_branch_name(&username, &workspace_name);
+
+    // Get repository path
+    let repo_path = repo
+        .base_path
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or_else(|| WebError::BadRequest("Repository has no base path".to_string()))?;
+
+    // Create git worktree
+    let worktree_manager = core.worktree_manager();
+    let worktree_path = worktree_manager
+        .create_worktree(&repo_path, &branch_name, &workspace_name)
+        .map_err(|e| WebError::Internal(format!("Failed to create worktree: {}", e)))?;
+
+    // Create workspace model
+    let workspace = Workspace::new(repository_id, &workspace_name, &branch_name, worktree_path);
+
+    // Save to database
+    workspace_store.create(&workspace).map_err(|e| {
+        // If database save fails, try to clean up the worktree
+        if let Err(err) = core
+            .worktree_manager()
+            .remove_worktree(&repo_path, &workspace.path)
+        {
+            tracing::warn!(
+                error = %err,
+                repo_path = %repo_path.display(),
+                workspace_path = %workspace.path.display(),
+                "Failed to remove worktree after workspace save failure"
+            );
+        }
+        WebError::Internal(format!("Failed to save workspace: {}", e))
+    })?;
+
+    let response = WorkspaceResponse::from(workspace.clone());
+    state
+        .status_manager()
+        .register_workspace(workspace.id, workspace.path.clone());
+    state.status_manager().refresh_workspace(workspace.id);
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// Get workspace git status and PR info.
+pub async fn get_workspace_status(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<WorkspaceStatusResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    // Get the workspace
+    let workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    state
+        .status_manager()
+        .register_workspace(workspace.id, workspace.path.clone());
+
+    Ok(Json(
+        state
+            .status_manager()
+            .get_status(workspace.id)
+            .unwrap_or_default(),
+    ))
+}
+
+/// Run PR preflight checks for a workspace.
+pub async fn get_workspace_pr_preflight(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<PrPreflightResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    let preflight = PrManager::preflight_check(&workspace.path);
+    Ok(Json(build_pr_preflight_response(preflight)))
+}
+
+/// Create a PR prompt for a workspace after preflight checks.
+pub async fn create_workspace_pr(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<PrCreateResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    let preflight = PrManager::preflight_check(&workspace.path);
+    let prompt = PrManager::generate_pr_prompt(&preflight);
+
+    Ok(Json(PrCreateResponse {
+        preflight: build_pr_preflight_response(preflight),
+        prompt,
+    }))
+}
+
+/// Get or create a session for a workspace.
+///
+/// This endpoint returns the existing session for a workspace if one exists,
+/// or creates a new session with the default agent (Claude) if none exists.
+/// This mirrors the TUI behavior where opening a workspace automatically
+/// creates/restores a session.
+pub async fn get_or_create_session(
+    State(state): State<WebAppState>,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<Json<SessionResponse>, WebError> {
+    let core = state.core().await;
+    let session = SessionService::get_or_create_session_for_workspace(&core, workspace_id)
+        .map_err(map_service_error)?;
+
+    Ok(Json(SessionResponse::from(session)))
+}
+
+fn map_service_error(error: ServiceError) -> WebError {
+    match error {
+        ServiceError::InvalidInput(message) => WebError::BadRequest(message),
+        ServiceError::NotFound(message) => WebError::NotFound(message),
+        ServiceError::Internal(message) => WebError::Internal(message),
+    }
+}
+
+fn build_pr_preflight_response(preflight: crate::git::PrPreflightResult) -> PrPreflightResponse {
+    PrPreflightResponse {
+        gh_installed: preflight.gh_installed,
+        gh_authenticated: preflight.gh_authenticated,
+        on_main_branch: preflight.on_main_branch,
+        branch_name: preflight.branch_name,
+        target_branch: preflight.target_branch,
+        uncommitted_count: preflight.uncommitted_count,
+        has_upstream: preflight.has_upstream,
+        existing_pr: preflight
+            .existing_pr
+            .as_ref()
+            .and_then(PrStatusResponse::from_pr_status),
+    }
+}
+
+/// Request to read a file within a workspace.
+#[derive(Debug, Deserialize)]
+pub struct ReadFileRequest {
+    pub path: String,
+}
+
+/// Response for reading a file.
+#[derive(Debug, Serialize)]
+pub struct ReadFileResponse {
+    pub content: String,
+    pub encoding: String,
+    pub size: u64,
+    pub media_type: String,
+    pub exists: bool,
+}
+
+/// Read a file from a workspace.
+///
+/// Security: Only files within the workspace directory are allowed.
+pub async fn read_workspace_file(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ReadFileRequest>,
+) -> Result<Json<ReadFileResponse>, WebError> {
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let workspace = store
+        .get_by_id(id)
+        .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
+        .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
+
+    let requested_path = PathBuf::from(&req.path);
+    let file_path = if requested_path.is_absolute() {
+        requested_path
+    } else {
+        workspace.path.join(&req.path)
+    };
+
+    // Security: Ensure the requested path is within the workspace directory
+    let workspace_canonical = workspace
+        .path
+        .canonicalize()
+        .map_err(|e| WebError::Internal(format!("Failed to resolve workspace path: {}", e)))?;
+
+    let file_canonical = file_path.canonicalize().map_err(|_| {
+        // File doesn't exist - return exists: false
+        WebError::NotFound("File not found".to_string())
+    });
+
+    let file_canonical = match file_canonical {
+        Ok(path) => path,
+        Err(_) => {
+            return Ok(Json(ReadFileResponse {
+                content: String::new(),
+                encoding: "utf-8".to_string(),
+                size: 0,
+                media_type: "text/plain".to_string(),
+                exists: false,
+            }));
+        }
+    };
+
+    // Verify file is within workspace
+    if !file_canonical.starts_with(&workspace_canonical) {
+        return Err(WebError::BadRequest(
+            "File path must be within workspace directory".to_string(),
+        ));
+    }
+
+    // Read file metadata
+    let metadata = std::fs::metadata(&file_canonical)
+        .map_err(|e| WebError::Internal(format!("Failed to read file metadata: {}", e)))?;
+
+    let size = metadata.len();
+
+    // Determine media type from extension
+    let extension = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    let media_type = match extension.to_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "pdf" => "application/pdf",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" => "text/javascript",
+        "ts" | "tsx" => "text/typescript",
+        "md" | "markdown" => "text/markdown",
+        "rs" => "text/x-rust",
+        "py" => "text/x-python",
+        "go" => "text/x-go",
+        "yaml" | "yml" => "text/yaml",
+        "toml" => "text/toml",
+        _ => "text/plain",
+    }
+    .to_string();
+
+    // Check if binary file
+    let is_binary = matches!(
+        extension.to_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "bmp" | "pdf"
+    );
+
+    let (content, encoding) = if is_binary {
+        // Read as base64
+        let bytes = std::fs::read(&file_canonical)
+            .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))?;
+        (
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
+            "base64".to_string(),
+        )
+    } else {
+        // Read as UTF-8
+        let text = std::fs::read_to_string(&file_canonical)
+            .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))?;
+        (text, "utf-8".to_string())
+    };
+
+    Ok(Json(ReadFileResponse {
+        content,
+        encoding,
+        size,
+        media_type,
+        exists: true,
+    }))
+}

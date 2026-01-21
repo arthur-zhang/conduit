@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use conduit::{
+use conduit_cli::{
     config::save_tool_path,
     ui::terminal_guard,
     util::{self, Tool, ToolAvailability},
@@ -40,6 +40,17 @@ enum Commands {
         #[arg(long)]
         palette: bool,
     },
+
+    /// Start the web server
+    Serve {
+        /// Host address to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Port to listen on
+        #[arg(short, long, default_value_t = 3000)]
+        port: u16,
+    },
 }
 
 #[tokio::main]
@@ -59,6 +70,9 @@ async fn main() -> Result<()> {
             palette,
         }) => {
             run_migrate_theme(&input, output.as_deref(), palette)?;
+        }
+        Some(Commands::Serve { host, port }) => {
+            run_web_server(host, port).await?;
         }
         None => {
             run_app().await?;
@@ -95,7 +109,10 @@ async fn run_app() -> Result<()> {
     let config = Config::load();
 
     // Initialize theme from config
-    conduit::ui::components::init_theme(config.theme_name.as_deref(), config.theme_path.as_deref());
+    conduit_cli::ui::components::init_theme(
+        config.theme_name.as_deref(),
+        config.theme_path.as_deref(),
+    );
 
     // Detect tool availability
     let mut tools = ToolAvailability::detect(&config.tool_paths);
@@ -157,7 +174,9 @@ async fn run_app() -> Result<()> {
 /// This creates a minimal TUI just for the dialog, then returns control.
 /// Returns Some(path) if user provided a valid path, None if user chose to quit.
 fn run_blocking_tool_dialog(tool: Tool, _tools: &ToolAvailability) -> Result<Option<PathBuf>> {
-    use conduit::ui::components::{MissingToolDialog, MissingToolDialogState, MissingToolResult};
+    use conduit_cli::ui::components::{
+        MissingToolDialog, MissingToolDialogState, MissingToolResult,
+    };
     use crossterm::{
         event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
         execute,
@@ -256,7 +275,7 @@ fn run_blocking_tool_dialog(tool: Tool, _tools: &ToolAvailability) -> Result<Opt
 
 /// Run the theme migration command
 fn run_migrate_theme(input: &Path, output: Option<&Path>, extract_palette: bool) -> Result<()> {
-    use conduit::ui::components::theme::migrate::{
+    use conduit_cli::ui::components::theme::migrate::{
         migrate_vscode_theme, write_theme_file, MigrateOptions,
     };
 
@@ -316,6 +335,45 @@ fn run_migrate_theme(input: &Path, output: Option<&Path>, extract_palette: bool)
             .unwrap_or_default()
             .to_string_lossy()
     );
+
+    Ok(())
+}
+
+/// Run the web server
+async fn run_web_server(host: String, port: u16) -> Result<()> {
+    use conduit_cli::core::ConduitCore;
+    use conduit_cli::web::{run_server, ServerConfig, WebAppState};
+
+    // Initialize logging to stdout for web server mode
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::Level::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
+
+    // Create config
+    let config = Config::load();
+
+    // Detect tool availability
+    let tools = ToolAvailability::detect(&config.tool_paths);
+
+    // Create ConduitCore
+    let core = ConduitCore::new(config, tools);
+
+    // Create web app state
+    let state = WebAppState::new(core);
+
+    // Configure server
+    let server_config = ServerConfig {
+        host,
+        port,
+        cors_permissive: true,
+    };
+
+    // Run server
+    run_server(state, server_config).await?;
 
     Ok(())
 }

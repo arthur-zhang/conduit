@@ -12,6 +12,7 @@ impl App {
             return false;
         }
 
+        let show_chat_scrollbar = self.config().ui.show_chat_scrollbar;
         let Some(session) = self.state.tab_manager.active_session_mut() else {
             return false;
         };
@@ -38,12 +39,10 @@ impl App {
                     self.state.sidebar_state.set_focused(false);
                 }
                 session.input_box.clear_selection();
-                if session.chat_view.begin_selection(
-                    x,
-                    y,
-                    chat_area,
-                    self.config.ui.show_chat_scrollbar,
-                ) {
+                if session
+                    .chat_view
+                    .begin_selection(x, y, chat_area, show_chat_scrollbar)
+                {
                     self.state.selection_drag = Some(SelectionDragTarget::Chat);
                     return true;
                 }
@@ -60,6 +59,7 @@ impl App {
 
         let mut scrolled_lines = 0usize;
         let mut handled = false;
+        let show_chat_scrollbar = self.config().ui.show_chat_scrollbar;
 
         {
             let Some(session) = self.state.tab_manager.active_session_mut() else {
@@ -103,7 +103,7 @@ impl App {
                             y,
                             chat_area,
                             session.is_processing,
-                            self.config.ui.show_chat_scrollbar,
+                            show_chat_scrollbar,
                         );
                         handled = true;
                     }
@@ -122,16 +122,17 @@ impl App {
         let target = self.state.selection_drag.take()?;
         let mut copied_text = None;
         let mut should_clear_selection = false;
+        let auto_copy = self.config().selection.auto_copy_selection;
+        let clear_after_copy = self.config().selection.clear_selection_after_copy;
         if let Some(session) = self.state.tab_manager.active_session_mut() {
             let has_selection = match target {
                 SelectionDragTarget::Input => session.input_box.finalize_selection(),
                 SelectionDragTarget::Chat => session.chat_view.finalize_selection(),
             };
 
-            if has_selection && self.config.selection.auto_copy_selection {
+            if has_selection && auto_copy {
                 copied_text = Self::selection_text_for_target(session, target);
-                should_clear_selection =
-                    copied_text.is_some() && self.config.selection.clear_selection_after_copy;
+                should_clear_selection = copied_text.is_some() && clear_after_copy;
             }
             if should_clear_selection {
                 Self::clear_selection_for_target(session, target);
