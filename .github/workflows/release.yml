@@ -23,7 +23,7 @@ jobs:
             os: warp-macos-latest-arm64-6x
             archive: tar.gz
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15-intel
             archive: tar.gz
           - target: x86_64-pc-windows-msvc
             os: warp-windows-latest-x64-4x
@@ -36,6 +36,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'warp-ubuntu-latest-x64-4x'
