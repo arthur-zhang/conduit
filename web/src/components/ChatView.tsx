@@ -22,7 +22,7 @@ import {
   useSessionHistory,
   useWorkspaceActions,
 } from '../hooks';
-import { getSessionEventsPage } from '../lib/api';
+import { getFileContent, getSessionEventsPage } from '../lib/api';
 import type {
   Session,
   UserQuestion,
@@ -289,6 +289,10 @@ export function ChatView({
       });
       setHistoryEvents((prev) => [...response.events, ...prev]);
       setHistoryOffset(response.offset);
+    } catch (error) {
+      isPrependingHistory.current = false;
+      pendingScrollAdjustment.current = null;
+      console.error('Failed to load more history', error);
     } finally {
       setIsLoadingMore(false);
     }
@@ -629,14 +633,38 @@ export function ChatView({
     );
   };
 
-  const handleSendQueued = (queued: QueuedMessage) => {
+  const handleSendQueued = async (queued: QueuedMessage) => {
     if (!session || !workspace) return;
     setOptimisticMessages((prev) => ({
       ...prev,
       [session.id]: [...(prev[session.id] ?? []), queued.text],
     }));
     setIsAwaitingResponse(true);
-    sendPrompt(session.id, queued.text, workspace.path, session.model ?? undefined);
+    let queuedImagePayload: ImageAttachment[] = [];
+    if (queued.images.length > 0) {
+      try {
+        const payloads = await Promise.all(
+          queued.images.map(async (image) => {
+            const response = await getFileContent(workspace.id, image.path);
+            if (!response.exists) return null;
+            return { data: response.content, media_type: response.media_type };
+          })
+        );
+        queuedImagePayload = payloads.filter(
+          (payload): payload is ImageAttachment => Boolean(payload)
+        );
+      } catch (error) {
+        console.error('Failed to load queued images', error);
+      }
+    }
+    sendPrompt(
+      session.id,
+      queued.text,
+      workspace.path,
+      session.model ?? undefined,
+      undefined,
+      queuedImagePayload
+    );
     deleteQueueMutation.mutate({ id: session.id, messageId: queued.id });
   };
 
