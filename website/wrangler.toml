@@ -1,0 +1,10 @@
+# Cloudflare Pages configuration for getconduit.sh
+name = "getconduit-sh"
+pages_build_output_dir = "dist"
+
+# Deployment command: pnpm deploy
+# This will build and deploy to Cloudflare Pages
+#
+# Note: Production branch is configured in Cloudflare Dashboard.
+# All deployments via wrangler go live to getconduit.sh automatically
+# since the project has no git integration (direct upload mode).
