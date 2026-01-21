@@ -163,6 +163,8 @@ pub struct App {
     event_rx: mpsc::UnboundedReceiver<AppEvent>,
     /// Background git/PR status tracker
     git_tracker: Option<crate::ui::git_tracker::GitTrackerHandle>,
+    /// Whether the UI needs to be redrawn this frame
+    should_redraw: bool,
 }
 
 // Convenience accessors for backward compatibility during refactoring
@@ -344,6 +346,7 @@ impl App {
             event_tx,
             event_rx,
             git_tracker,
+            should_redraw: true,
         };
 
         // Update agent selector based on available tools
@@ -838,11 +841,14 @@ impl App {
             let frame_start = Instant::now();
 
             // Draw UI with timing
-            let draw_start = Instant::now();
-            terminal.draw(|f| self.draw(f))?;
-            let draw_end = Instant::now();
-            self.state.metrics.draw_time = draw_end.duration_since(draw_start);
-            self.state.metrics.on_draw_end(draw_end);
+            if self.should_redraw {
+                let draw_start = Instant::now();
+                terminal.draw(|f| self.draw(f))?;
+                let draw_end = Instant::now();
+                self.state.metrics.draw_time = draw_end.duration_since(draw_start);
+                self.state.metrics.on_draw_end(draw_end);
+                self.should_redraw = false;
+            }
 
             // Calculate remaining sleep time to hit ~60 FPS target
             // Account for draw time already spent this frame
@@ -952,12 +958,18 @@ impl App {
         guard: &mut TerminalGuard,
     ) -> anyhow::Result<()> {
         let effects = match event {
-            AppEvent::Input(input) => self.handle_input_event(input, terminal, guard).await?,
+            AppEvent::Input(input) => {
+                self.should_redraw = true;
+                self.handle_input_event(input, terminal, guard).await?
+            }
             AppEvent::Tick => {
                 self.handle_tick();
                 Vec::new()
             }
-            _ => self.handle_app_event(event).await?,
+            _ => {
+                self.should_redraw = true;
+                self.handle_app_event(event).await?
+            }
         };
 
         self.run_effects(effects).await
@@ -969,6 +981,9 @@ impl App {
         // Tick footer Knight Rider spinner every 2 frames (~40ms at 50 FPS, matches opencode)
         if self.state.tick_count.is_multiple_of(2) {
             self.state.tick_footer_spinner();
+            if self.state.footer_spinner.is_some() {
+                self.should_redraw = true;
+            }
         }
 
         // Tick logo shine animation every 3 frames (~50ms for smooth diagonal sweep)
@@ -981,6 +996,7 @@ impl App {
                     self.state.logo_shine.reset();
                 }
                 self.state.logo_shine.tick();
+                self.should_redraw = true;
             }
             self.state.was_splash_visible = splash_visible;
         }
@@ -999,6 +1015,7 @@ impl App {
                         | Some("Press Ctrl+C again to quit")
                 ) {
                     self.state.footer_message = None;
+                    self.should_redraw = true;
                 }
             }
         }
@@ -1011,12 +1028,17 @@ impl App {
                     Some("Press Esc again to interrupt") | Some("Press Esc again to clear")
                 ) {
                     self.state.footer_message = None;
+                    self.should_redraw = true;
                 }
             }
         }
 
         // Clear expired timed footer messages
+        let had_footer_message = self.state.footer_message.is_some();
         self.state.clear_expired_footer_message();
+        if had_footer_message != self.state.footer_message.is_some() {
+            self.should_redraw = true;
+        }
 
         self.state.theme_picker_state.tick();
         let can_show_picker_error = self.state.theme_picker_state.is_visible()
@@ -1026,7 +1048,11 @@ impl App {
             if let Some(error) = self.state.theme_picker_state.take_error() {
                 self.state
                     .set_timed_footer_message(error, Duration::from_secs(5));
+                self.should_redraw = true;
             }
+        }
+        if self.state.theme_picker_state.is_visible() {
+            self.should_redraw = true;
         }
 
         // Tick other animations every 6 frames (~100ms)
@@ -1036,15 +1062,25 @@ impl App {
 
         // Advance spinner frame for PR processing indicator
         self.state.spinner_frame = self.state.spinner_frame.wrapping_add(1);
+        self.should_redraw = true;
 
         // Tick confirmation dialog spinner (for loading state)
         self.state.confirmation_dialog_state.tick();
+        if self.state.confirmation_dialog_state.visible {
+            self.should_redraw = true;
+        }
 
         // Tick session import spinner (for loading state)
         self.state.session_import_state.tick();
+        if self.state.session_import_state.visible {
+            self.should_redraw = true;
+        }
 
         if let Some(session) = self.state.tab_manager.active_session_mut() {
             session.tick();
+            if session.is_processing {
+                self.should_redraw = true;
+            }
         }
     }
 
