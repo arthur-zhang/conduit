@@ -32,6 +32,18 @@ export interface ArchivePreflightResponse {
   error: string | null;
 }
 
+export interface RepositoryRemovePreflightResponse {
+  repository_name: string;
+  workspace_count: number;
+  warnings: string[];
+  severity: 'info' | 'warning' | 'danger';
+}
+
+export interface RepositoryRemoveResponse {
+  success: boolean;
+  errors: string[];
+}
+
 export interface Session {
   id: string;
   tab_index: number;

@@ -23,6 +23,14 @@ pub fn api_routes() -> Router<WebAppState> {
             "/repositories/{id}",
             delete(repositories::delete_repository),
         )
+        .route(
+            "/repositories/{id}/remove/preflight",
+            get(repositories::get_repository_remove_preflight),
+        )
+        .route(
+            "/repositories/{id}/remove",
+            post(repositories::remove_repository),
+        )
         // Repository workspaces routes
         .route(
             "/repositories/{id}/workspaces",

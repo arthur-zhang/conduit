@@ -32,6 +32,8 @@ import {
   useOnboardingBaseDir,
   useWorkspaceArchivePreflight,
   useArchiveWorkspace,
+  useRepositoryRemovePreflight,
+  useRemoveRepository,
   useWorkspaceActions,
   useUpdateSession,
 } from './hooks';
@@ -128,6 +130,7 @@ function AppContent() {
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
   const [createWorkspaceRepo, setCreateWorkspaceRepo] = useState<Repository | null>(null);
   const [archiveWorkspaceTarget, setArchiveWorkspaceTarget] = useState<Workspace | null>(null);
+  const [removeRepositoryTarget, setRemoveRepositoryTarget] = useState<Repository | null>(null);
   const [fileViewerTabs, setFileViewerTabs] = useState<FileViewerTab[]>([]);
   const [activeFileViewerId, setActiveFileViewerId] = useState<string | null>(null);
   const previousActiveSessionId = useRef<string | null>(null);
@@ -177,6 +180,11 @@ function AppContent() {
     archiveWorkspaceTarget?.id ?? null,
     { enabled: !!archiveWorkspaceTarget }
   );
+  const { data: removeRepositoryPreflight } = useRepositoryRemovePreflight(
+    removeRepositoryTarget?.id ?? null,
+    { enabled: !!removeRepositoryTarget }
+  );
+  const removeRepository = useRemoveRepository();
 
   useEffect(() => {
     setHistoryReady(true);
@@ -451,6 +459,72 @@ function AppContent() {
     });
   };
 
+  const handleRemoveRepository = (repository: Repository) => {
+    setRemoveRepositoryTarget(repository);
+  };
+
+  const handleConfirmRemoveRepository = () => {
+    if (!removeRepositoryTarget) return;
+    const repositoryId = removeRepositoryTarget.id;
+
+    // Find affected workspaces/sessions
+    const affectedWorkspaceIds = resolvedWorkspaces
+      .filter((ws) => ws.repository_id === repositoryId)
+      .map((ws) => ws.id);
+    const sessionIdsToRemove = orderedSessions
+      .filter((s) => s.workspace_id && affectedWorkspaceIds.includes(s.workspace_id))
+      .map((s) => s.id);
+    const remainingSessions = orderedSessions.filter(
+      (s) => !s.workspace_id || !affectedWorkspaceIds.includes(s.workspace_id)
+    );
+
+    removeRepository.mutate(repositoryId, {
+      onSuccess: () => {
+        // Update tab order
+        if (sessionIdsToRemove.length > 0) {
+          const newTabOrder = (resolvedUiState?.tab_order ?? []).filter(
+            (id) => !sessionIdsToRemove.includes(id)
+          );
+          updateUiState.mutate({ tab_order: newTabOrder });
+        }
+
+        // Update active session
+        if (activeSessionId && sessionIdsToRemove.includes(activeSessionId)) {
+          if (remainingSessions.length > 0) {
+            const next = remainingSessions[0];
+            setActiveSessionId(next.id);
+            updateUiState.mutate({
+              active_session_id: next.id,
+              last_workspace_id: next.workspace_id ?? null,
+            });
+            setSelectedWorkspaceId(next.workspace_id ?? null);
+          } else {
+            setAutoCreateEnabled(false);
+            setActiveSessionId(null);
+            updateUiState.mutate({ active_session_id: null });
+          }
+        }
+
+        // Update selected workspace
+        if (selectedWorkspaceId && affectedWorkspaceIds.includes(selectedWorkspaceId)) {
+          setSelectedWorkspaceId(null);
+          updateUiState.mutate({ last_workspace_id: null });
+        }
+
+        // Clean up suppressed workspace IDs
+        setSuppressedWorkspaceIds((prev) => {
+          const next = new Set(prev);
+          for (const wsId of affectedWorkspaceIds) {
+            next.delete(wsId);
+          }
+          return next.size !== prev.size ? next : prev;
+        });
+
+        setRemoveRepositoryTarget(null);
+      },
+    });
+  };
+
   const handleNextTab = () => {
     if (orderedSessions.length === 0) return;
     if (!activeSessionId) {
@@ -648,6 +722,18 @@ function AppContent() {
         onSelect: () => selectedWorkspace && handleArchiveWorkspace(selectedWorkspace),
       },
       {
+        id: 'remove-project',
+        label: 'Remove Project...',
+        keywords: 'delete repository',
+        disabled: !selectedWorkspace,
+        onSelect: () => {
+          if (selectedWorkspace) {
+            const repo = resolvedRepositories.find((r) => r.id === selectedWorkspace.repository_id);
+            if (repo) handleRemoveRepository(repo);
+          }
+        },
+      },
+      {
         id: 'copy-workspace-path',
         label: 'Copy Workspace Path',
         disabled: !activeWorkspace?.path,
@@ -705,11 +791,12 @@ function AppContent() {
       handleOpenImport,
       handleOpenPr,
       handlePrevTab,
+      handleRemoveRepository,
       handleTogglePlanMode,
       handleToggleSidebar,
       isSidebarOpen,
       orderedSessions.length,
-      resolvedRepositories.length,
+      resolvedRepositories,
       selectedWorkspace,
       workspaceStatus?.pr_status,
     ]
@@ -772,6 +859,7 @@ function AppContent() {
         onSelectWorkspace={handleSelectWorkspace}
         onCreateWorkspace={(repository) => setCreateWorkspaceRepo(repository)}
         onArchiveWorkspace={handleArchiveWorkspace}
+        onRemoveRepository={handleRemoveRepository}
         onAddProject={handleAddProject}
         onBrowseProjects={handleBrowseProjects}
         sessions={orderedSessions}
@@ -857,7 +945,7 @@ function AppContent() {
       <ConfirmDialog
         isOpen={!!archiveWorkspaceTarget}
         onClose={() => setArchiveWorkspaceTarget(null)}
-        title={`Archive \"${archiveWorkspaceTarget?.name ?? ''}\"?`}
+        title={`Archive "${archiveWorkspaceTarget?.name ?? ''}"?`}
         description="This will remove the worktree and delete the branch."
         confirmLabel="Archive"
         onConfirm={handleConfirmArchive}
@@ -868,6 +956,23 @@ function AppContent() {
           archivePreflight?.severity === 'danger'
             ? 'danger'
             : archivePreflight?.severity === 'warning'
+              ? 'warning'
+              : 'info'
+        }
+      />
+      <ConfirmDialog
+        isOpen={!!removeRepositoryTarget}
+        onClose={() => setRemoveRepositoryTarget(null)}
+        title={`Remove "${removeRepositoryTarget?.name ?? ''}"?`}
+        description="This will archive all workspaces and remove the project."
+        confirmLabel="Remove"
+        onConfirm={handleConfirmRemoveRepository}
+        warnings={removeRepositoryPreflight?.warnings}
+        isPending={removeRepository.isPending}
+        confirmVariant={
+          removeRepositoryPreflight?.severity === 'danger'
+            ? 'danger'
+            : removeRepositoryPreflight?.severity === 'warning'
               ? 'warning'
               : 'info'
         }

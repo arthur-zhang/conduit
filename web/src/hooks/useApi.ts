@@ -23,6 +23,7 @@ export const queryKeys = {
   models: ['models'] as const,
   repositories: ['repositories'] as const,
   repository: (id: string) => ['repositories', id] as const,
+  repositoryRemovePreflight: (id: string) => ['repositories', id, 'remove-preflight'] as const,
   workspaces: ['workspaces'] as const,
   repositoryWorkspaces: (id: string) => ['repositories', id, 'workspaces'] as const,
   workspace: (id: string) => ['workspaces', id] as const,
@@ -120,6 +121,30 @@ export function useDeleteRepository() {
     mutationFn: (id: string) => api.deleteRepository(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories });
+    },
+  });
+}
+
+export function useRepositoryRemovePreflight(
+  repositoryId: string | null,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.repositoryRemovePreflight(repositoryId ?? ''),
+    queryFn: () => api.getRepositoryRemovePreflight(repositoryId!),
+    enabled: (options?.enabled ?? true) && !!repositoryId,
+    staleTime: 5000,
+  });
+}
+
+export function useRemoveRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.removeRepository(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
     },
   });
 }

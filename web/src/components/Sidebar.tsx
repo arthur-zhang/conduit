@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Archive,
   FolderOpen,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '../lib/cn';
 import type { Repository, Workspace } from '../types';
@@ -177,6 +178,7 @@ interface RepositorySectionProps {
   onSelectWorkspace?: (workspace: Workspace) => void;
   onArchiveWorkspace?: (workspace: Workspace) => void;
   onNewWorkspace?: () => void;
+  onRemoveRepository?: (repository: Repository) => void;
 }
 
 function RepositorySection({
@@ -186,27 +188,47 @@ function RepositorySection({
   onSelectWorkspace,
   onArchiveWorkspace,
   onNewWorkspace,
+  onRemoveRepository,
 }: RepositorySectionProps) {
   const [expanded, setExpanded] = useState(true);
 
   return (
     <div className="mb-2">
       {/* Repository header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        aria-label={expanded ? 'Collapse repository' : 'Expand repository'}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-elevated"
-      >
-        <span className="text-text-muted">
-          {expanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </span>
-        <span className="truncate">{repository.name}</span>
-      </button>
+      <div className="group flex w-full items-center">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          aria-label={expanded ? 'Collapse repository' : 'Expand repository'}
+          aria-expanded={expanded}
+          className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-elevated"
+        >
+          <span className="text-text-muted">
+            {expanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </span>
+          <span className="truncate">{repository.name}</span>
+        </button>
+
+        {onRemoveRepository && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveRepository(repository);
+            }}
+            className={cn(
+              'mr-2 flex items-center justify-center rounded p-1 text-text-muted transition-colors',
+              'hover:bg-surface-elevated hover:text-error',
+              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+            )}
+            aria-label={`Remove project ${repository.name}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {/* Workspaces under repository */}
       {expanded && (
@@ -243,6 +265,7 @@ interface SidebarProps {
   onSelectWorkspace?: (workspace: Workspace) => void;
   onCreateWorkspace?: (repository: Repository) => void;
   onArchiveWorkspace?: (workspace: Workspace) => void;
+  onRemoveRepository?: (repository: Repository) => void;
   onAddProject?: () => void;
   onBrowseProjects?: () => void;
 }
@@ -252,6 +275,7 @@ export function Sidebar({
   onSelectWorkspace,
   onCreateWorkspace,
   onArchiveWorkspace,
+  onRemoveRepository,
   onAddProject,
   onBrowseProjects,
 }: SidebarProps) {
@@ -330,6 +354,7 @@ export function Sidebar({
                   selectedWorkspaceId={selectedWorkspaceId}
                   onSelectWorkspace={onSelectWorkspace}
                   onArchiveWorkspace={onArchiveWorkspace}
+                  onRemoveRepository={onRemoveRepository}
                   onNewWorkspace={() => handleNewWorkspace(repo)}
                 />
               ))

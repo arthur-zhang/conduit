@@ -34,6 +34,8 @@ import type {
   PrPreflightResponse,
   PrCreateResponse,
   ArchivePreflightResponse,
+  RepositoryRemovePreflightResponse,
+  RepositoryRemoveResponse,
   OnboardingBaseDirResponse,
   OnboardingProjectsResponse,
   AddOnboardingProjectRequest,
@@ -120,6 +122,14 @@ export async function createRepository(data: CreateRepositoryRequest): Promise<R
 
 export async function deleteRepository(id: string): Promise<void> {
   await request(`/repositories/${id}`, { method: 'DELETE' });
+}
+
+export async function getRepositoryRemovePreflight(id: string): Promise<RepositoryRemovePreflightResponse> {
+  return request(`/repositories/${id}/remove/preflight`);
+}
+
+export async function removeRepository(id: string): Promise<RepositoryRemoveResponse> {
+  return request(`/repositories/${id}/remove`, { method: 'POST' });
 }
 
 // Workspaces

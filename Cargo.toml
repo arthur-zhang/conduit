@@ -10,6 +10,10 @@ readme = "README.md"
 keywords = ["tui", "cli", "claude", "ai", "terminal"]
 categories = ["command-line-utilities", "development-tools"]
 
+[[bin]]
+name = "conduit"
+path = "src/main.rs"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1.42", features = ["full", "process", "sync", "macros", "rt-multi-thread"] }
