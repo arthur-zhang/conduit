@@ -3,10 +3,12 @@
  * GA Announcement Script - Send GA announcement to all waitlist subscribers
  *
  * Usage:
- *   pnpm ga-announce --dry-run     # Preview without sending
- *   pnpm ga-announce               # Send to all waitlist subscribers
- *   pnpm ga-announce --batch 50    # Send in batches of 50 (default: 100)
- *   pnpm ga-announce --delay 1000  # Delay between batches in ms (default: 2000)
+ *   pnpm ga-announce --dry-run                    # Preview without sending
+ *   pnpm ga-announce                              # Send to all waitlist subscribers
+ *   pnpm ga-announce --schedule "tomorrow at 9am ET"  # Schedule for later
+ *   pnpm ga-announce --limit 1                    # Only send/schedule first N emails
+ *   pnpm ga-announce --batch 50                   # Send in batches of 50 (default: 100)
+ *   pnpm ga-announce --delay 1000                 # Delay between batches in ms (default: 2000)
  */
 
 import 'dotenv/config'
@@ -30,6 +32,8 @@ const hasFlag = (name: string): boolean => args.includes(`--${name}`)
 const dryRun = hasFlag('dry-run')
 const batchSize = parseInt(getArg('batch') || '100', 10)
 const delayMs = parseInt(getArg('delay') || '2000', 10)
+const scheduleAt = getArg('schedule')
+const limit = getArg('limit') ? parseInt(getArg('limit')!, 10) : undefined
 
 // Load environment variables
 const supabaseUrl = process.env.PUBLIC_SUPABASE_URL
@@ -84,11 +88,16 @@ async function main() {
     console.log('📋 DRY RUN MODE - No emails will be sent\n')
   }
 
-  // Fetch all waitlist subscribers
+  if (scheduleAt) {
+    console.log(`📅 SCHEDULED MODE - Emails will be scheduled for: ${scheduleAt}\n`)
+  }
+
+  // Fetch all waitlist subscribers (exclude already scheduled)
   console.log('Fetching waitlist subscribers...')
   const { data: subscribers, error } = await supabase
     .from('waitlist')
-    .select('email, created_at')
+    .select('email, created_at, ga_email_scheduled_at')
+    .is('ga_email_scheduled_at', null)
     .order('created_at', { ascending: true })
 
   if (error) {
@@ -101,30 +110,42 @@ async function main() {
     process.exit(0)
   }
 
-  console.log(`Found ${subscribers.length} subscribers on the waitlist.\n`)
+  const totalFound = subscribers.length
+  const targetSubscribers = limit ? subscribers.slice(0, limit) : subscribers
+
+  console.log(`Found ${totalFound} subscribers on the waitlist.`)
+  if (limit) {
+    console.log(`Limiting to first ${targetSubscribers.length} subscriber(s).\n`)
+  } else {
+    console.log('')
+  }
 
   // Show summary
   console.log('Summary:')
-  console.log(`  Total subscribers: ${subscribers.length}`)
+  console.log(`  Total subscribers: ${targetSubscribers.length}${limit ? ` (limited from ${totalFound})` : ''}`)
   console.log(`  Batch size: ${batchSize}`)
   console.log(`  Delay between batches: ${delayMs}ms`)
-  console.log(`  Estimated time: ~${Math.ceil((subscribers.length / batchSize) * (delayMs / 1000))} seconds\n`)
+  if (scheduleAt) {
+    console.log(`  Scheduled for: ${scheduleAt}`)
+  }
+  console.log(`  Estimated time: ~${Math.ceil((targetSubscribers.length / batchSize) * (delayMs / 1000))} seconds\n`)
 
   if (dryRun) {
     console.log('First 10 subscribers:')
-    subscribers.slice(0, 10).forEach((sub, i) => {
+    targetSubscribers.slice(0, 10).forEach((sub, i) => {
       console.log(`  ${i + 1}. ${sub.email}`)
     })
-    if (subscribers.length > 10) {
-      console.log(`  ... and ${subscribers.length - 10} more`)
+    if (targetSubscribers.length > 10) {
+      console.log(`  ... and ${targetSubscribers.length - 10} more`)
     }
     console.log('\n✅ Dry run complete. No emails sent.')
     return
   }
 
   // Confirm before sending
+  const actionWord = scheduleAt ? 'schedule' : 'send'
   const confirmed = await confirm(
-    `\n⚠️  You are about to send ${subscribers.length} emails. Continue?`
+    `\n⚠️  You are about to ${actionWord} ${targetSubscribers.length} email(s)${scheduleAt ? ` for ${scheduleAt}` : ''}. Continue?`
   )
 
   if (!confirmed) {
@@ -136,13 +157,15 @@ async function main() {
   let sent = 0
   let failed = 0
   const errors: { email: string; error: string }[] = []
+  const actionVerb = scheduleAt ? 'Scheduling' : 'Sending'
+  const actionPast = scheduleAt ? 'scheduled' : 'sent'
 
-  console.log('\nSending emails...\n')
+  console.log(`\n${actionVerb} emails...\n`)
 
-  for (let i = 0; i < subscribers.length; i += batchSize) {
-    const batch = subscribers.slice(i, i + batchSize)
+  for (let i = 0; i < targetSubscribers.length; i += batchSize) {
+    const batch = targetSubscribers.slice(i, i + batchSize)
     const batchNum = Math.floor(i / batchSize) + 1
-    const totalBatches = Math.ceil(subscribers.length / batchSize)
+    const totalBatches = Math.ceil(targetSubscribers.length / batchSize)
 
     console.log(`Batch ${batchNum}/${totalBatches} (${batch.length} emails)...`)
 
@@ -153,13 +176,20 @@ async function main() {
         const result = await resend!.emails.send({
           from: 'Conduit <hello@getconduit.sh>',
           to: subscriber.email,
-          subject: 'Conduit is now free and open source!',
+          subject: "It's live. Come break it.",
           html,
+          ...(scheduleAt && { scheduledAt: scheduleAt }),
         })
 
         if (result.error) {
           throw new Error(result.error.message)
         }
+
+        // Mark as scheduled in database
+        await supabase
+          .from('waitlist')
+          .update({ ga_email_scheduled_at: new Date().toISOString() })
+          .eq('email', subscriber.email)
 
         sent++
         process.stdout.write('.')
@@ -173,10 +203,10 @@ async function main() {
       }
     }
 
-    console.log(` Done (${sent} sent, ${failed} failed)`)
+    console.log(` Done (${sent} ${actionPast}, ${failed} failed)`)
 
     // Delay between batches (except for the last one)
-    if (i + batchSize < subscribers.length) {
+    if (i + batchSize < targetSubscribers.length) {
       await sleep(delayMs)
     }
   }
@@ -185,7 +215,7 @@ async function main() {
   console.log('\n' + '='.repeat(50))
   console.log('📊 Summary')
   console.log('='.repeat(50))
-  console.log(`  ✅ Sent: ${sent}`)
+  console.log(`  ✅ ${scheduleAt ? 'Scheduled' : 'Sent'}: ${sent}`)
   console.log(`  ❌ Failed: ${failed}`)
 
   if (errors.length > 0) {
@@ -195,7 +225,7 @@ async function main() {
     })
   }
 
-  console.log('\n🎉 GA announcement complete!')
+  console.log(`\n🎉 GA announcement ${scheduleAt ? 'scheduled' : 'complete'}!`)
 }
 
 main().catch((err) => {

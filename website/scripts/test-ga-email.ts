@@ -47,7 +47,7 @@ async function main() {
     const { data, error } = await resend.emails.send({
       from: 'Conduit <hello@getconduit.sh>',
       to: to!,
-      subject: 'Conduit is now free and open source!',
+      subject: "It's live. Come break it.",
       html,
     })
 
