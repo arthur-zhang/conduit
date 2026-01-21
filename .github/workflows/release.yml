@@ -17,16 +17,16 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
-            os: warp-ubuntu-latest-x64-4x
+            os: ubuntu-latest
             archive: tar.gz
           - target: aarch64-apple-darwin
-            os: warp-macos-latest-arm64-6x
+            os: macos-latest
             archive: tar.gz
           - target: x86_64-apple-darwin
             os: macos-15-intel
             archive: tar.gz
           - target: x86_64-pc-windows-msvc
-            os: warp-windows-latest-x64-4x
+            os: windows-latest
             archive: zip
 
     steps:
@@ -45,7 +45,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies (Linux)
-        if: matrix.os == 'warp-ubuntu-latest-x64-4x'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools libxcb-shape0-dev libxcb-xfixes0-dev
@@ -76,7 +76,7 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: warp-ubuntu-latest-x64-4x
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
