@@ -263,6 +263,11 @@ assert_contains() {
         log_error "Expected to find: $expected"
         log_error "Screen content:"
         echo "$screen" | head -30
+        # Capture artifacts on failure
+        local timestamp=$(date +%Y%m%d_%H%M%S)
+        local safe_desc=$(echo "$description" | tr ' ' '_' | tr -cd '[:alnum:]_-')
+        screenshot "$sock" "failure_${safe_desc}_${timestamp}"
+        echo "$screen" > "$SCREENSHOT_DIR/failure_${safe_desc}_${timestamp}.txt"
         return 1
     fi
 }
@@ -278,6 +283,13 @@ assert_not_contains() {
     if echo "$screen" | grep -q "$unexpected"; then
         log_fail "$description"
         log_error "Did not expect to find: $unexpected"
+        log_error "Screen content:"
+        echo "$screen" | head -30
+        # Capture artifacts on failure
+        local timestamp=$(date +%Y%m%d_%H%M%S)
+        local safe_desc=$(echo "$description" | tr ' ' '_' | tr -cd '[:alnum:]_-')
+        screenshot "$sock" "failure_${safe_desc}_${timestamp}"
+        echo "$screen" > "$SCREENSHOT_DIR/failure_${safe_desc}_${timestamp}.txt"
         return 1
     else
         log_pass "$description"

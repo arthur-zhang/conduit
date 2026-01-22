@@ -126,3 +126,11 @@ jobs:
 
       - name: Run E2E tests
         run: tests/e2e/run_all.sh
+
+      - name: Upload E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-artifacts
+          path: tests/e2e/screenshots/
+          retention-days: 7
