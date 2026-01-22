@@ -504,8 +504,7 @@ function AppContent() {
           setPendingWorkspaceRepoId(null);
           autoCreateWorkspace.mutate(pendingRepoId, {
             onSuccess: (workspace) => {
-              setSelectedWorkspaceId(workspace.id);
-              updateUiState.mutate({ last_workspace_id: workspace.id });
+              handleSelectWorkspace(workspace);
             },
           });
         },
@@ -976,8 +975,7 @@ function AppContent() {
           }}
           onSuccess={(workspace) => {
             setCreateWorkspaceRepo(null);
-            setSelectedWorkspaceId(workspace.id);
-            updateUiState.mutate({ last_workspace_id: workspace.id });
+            handleSelectWorkspace(workspace);
           }}
         />
       )}
