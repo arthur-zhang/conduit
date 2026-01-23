@@ -70,7 +70,10 @@ impl AgentMode {
 
 impl AgentType {
     pub fn supports_plan_mode(&self) -> bool {
-        matches!(self, AgentType::Claude | AgentType::Codex | AgentType::Gemini)
+        matches!(
+            self,
+            AgentType::Claude | AgentType::Codex | AgentType::Gemini
+        )
     }
 
     pub fn as_str(&self) -> &'static str {

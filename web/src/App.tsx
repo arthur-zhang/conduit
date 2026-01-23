@@ -42,6 +42,7 @@ import {
 } from './hooks';
 import type { Repository, Workspace, Session, SessionEvent, AgentEvent, WorkspaceMode } from './types';
 import { supportsPlanMode } from './lib/agentCapabilities';
+import { cn } from './lib/cn';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -117,6 +118,30 @@ function latestUsageFromEvents(wsEvents: AgentEvent[], historyEvents: SessionEve
 }
 
 function AppContent() {
+  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'error' } | null>(null);
+  const noticeTimeout = useRef<number | null>(null);
+
+  const showNotice = useCallback(
+    (message: string, tone: 'info' | 'error' = 'info', timeoutMs = 2500) => {
+      setNotice({ message, tone });
+      if (noticeTimeout.current) {
+        window.clearTimeout(noticeTimeout.current);
+      }
+      noticeTimeout.current = window.setTimeout(() => {
+        setNotice(null);
+        noticeTimeout.current = null;
+      }, timeoutMs);
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimeout.current) {
+        window.clearTimeout(noticeTimeout.current);
+      }
+    };
+  }, []);
   const { data: bootstrap, isLoading: isBootstrapping } = useBootstrap();
   const repositoriesQuery = useRepositories({ enabled: !!bootstrap });
   const workspacesQuery = useWorkspaces({ enabled: !!bootstrap });
@@ -593,11 +618,16 @@ function AppContent() {
   };
 
   const handleCopyWorkspacePath = async () => {
-    if (!activeWorkspace?.path) return;
+    if (!activeWorkspace?.path) {
+      showNotice('No active workspace path to copy.', 'error');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(activeWorkspace.path);
+      showNotice(`Copied workspace path: ${activeWorkspace.path}`);
     } catch (err) {
       console.error('Failed to copy workspace path', err);
+      showNotice('Failed to copy workspace path.', 'error');
     }
   };
 
@@ -714,6 +744,13 @@ function AppContent() {
   const canTogglePlanMode =
     supportsPlanMode(activeSession?.agent_type) &&
     !activeSession?.agent_session_id;
+  const planToggleBlockReason = !activeSession
+    ? 'No active session.'
+    : !supportsPlanMode(activeSession.agent_type)
+      ? 'Plan mode is not supported for this agent.'
+      : activeSession.agent_session_id
+        ? 'Cannot change mode while a run is active.'
+        : null;
 
   const handleTogglePlanMode = () => {
     if (!activeSession || !canTogglePlanMode) return;
@@ -766,6 +803,11 @@ function AppContent() {
         shortcut: 'Ctrl+Shift+P',
         keywords: 'plan build mode toggle',
         disabled: !canTogglePlanMode,
+        onDisabledSelect: () => {
+          if (planToggleBlockReason) {
+            showNotice(planToggleBlockReason, 'error');
+          }
+        },
         onSelect: handleTogglePlanMode,
       },
       {
@@ -794,7 +836,9 @@ function AppContent() {
       {
         id: 'copy-workspace-path',
         label: 'Copy Workspace Path',
+        shortcut: 'Ctrl+Shift+C',
         disabled: !activeWorkspace?.path,
+        onDisabledSelect: () => showNotice('No active workspace path to copy.', 'error'),
         onSelect: handleCopyWorkspacePath,
       },
       {
@@ -867,6 +911,10 @@ function AppContent() {
         event.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
       }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === 'c') {
+        event.preventDefault();
+        handleCopyWorkspacePath();
+      }
       if ((event.metaKey || event.ctrlKey) && key === 'n') {
         event.preventDefault();
         handleBrowseProjects();
@@ -892,7 +940,13 @@ function AppContent() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onboardingBaseDir?.base_dir, orderedSessions, handleSelectSession]);
+  }, [
+    handleCopyWorkspacePath,
+    handleSelectSession,
+    handleBrowseProjects,
+    orderedSessions,
+    showNotice,
+  ]);
 
   const showOnboarding = resolvedRepositories.length === 0;
 
@@ -956,9 +1010,24 @@ function AppContent() {
             onNewSession={handleNewSession}
             isLoadingSession={isLoadingSession}
             onForkedSession={handleImportedSession}
+            onNotify={showNotice}
           />
         )}
       </Layout>
+      {notice && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <div
+            className={cn(
+              'max-w-[80vw] rounded-lg border px-4 py-2 text-sm shadow-lg backdrop-blur',
+              notice.tone === 'error'
+                ? 'border-red-500/40 bg-red-500/10 text-red-100'
+                : 'border-border bg-surface-elevated text-text'
+            )}
+          >
+            {notice.message}
+          </div>
+        </div>
+      )}
       <SessionImportDialog
         isOpen={isImportDialogOpen}
         onClose={() => setIsImportDialogOpen(false)}

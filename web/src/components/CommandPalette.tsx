@@ -9,6 +9,7 @@ export interface CommandPaletteItem {
   shortcut?: string;
   disabled?: boolean;
   onSelect: () => void;
+  onDisabledSelect?: () => void;
 }
 
 interface CommandPaletteProps {
@@ -78,7 +79,11 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
     if (event.key === 'Enter') {
       event.preventDefault();
       const selected = filtered[selectedIndex];
-      if (!selected || selected.disabled) return;
+      if (!selected) return;
+      if (selected.disabled) {
+        selected.onDisabledSelect?.();
+        return;
+      }
       selected.onSelect();
       onClose();
     }
@@ -128,22 +133,30 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
         {filtered.length === 0 ? (
           <div className="px-3 py-2 text-sm text-text-muted">No commands found.</div>
         ) : (
-          filtered.map((command, index) => (
+          filtered.map((command, index) => {
+            const isDisabled = !!command.disabled;
+            const allowDisabledClick = isDisabled && !!command.onDisabledSelect;
+            return (
             <button
               key={command.id}
+              type="button"
+              aria-disabled={isDisabled}
+              disabled={isDisabled && !allowDisabledClick}
               onClick={() => {
-                if (command.disabled) return;
+                if (isDisabled) {
+                  command.onDisabledSelect?.();
+                  return;
+                }
                 command.onSelect();
                 onClose();
               }}
               onMouseEnter={() => setSelectedIndex(index)}
-              disabled={command.disabled}
               className={cn(
                 'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors',
                 index === selectedIndex
                   ? 'bg-surface-elevated text-text'
                   : 'text-text-muted hover:bg-surface-elevated hover:text-text',
-                command.disabled && 'cursor-not-allowed opacity-50'
+                isDisabled && 'cursor-not-allowed opacity-50'
               )}
             >
               <span>{command.label}</span>
@@ -151,7 +164,8 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
                 <span className="text-xs text-text-muted">{command.shortcut}</span>
               )}
             </button>
-          ))
+          );
+          })
         )}
       </div>
     </dialog>

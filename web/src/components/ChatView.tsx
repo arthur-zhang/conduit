@@ -41,6 +41,7 @@ interface ChatViewProps {
   onNewSession?: () => void;
   isLoadingSession?: boolean;
   onForkedSession?: (session: Session, workspace: { id: string }) => void;
+  onNotify?: (message: string, tone?: 'info' | 'error') => void;
 }
 
 const INLINE_PROMPT_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
@@ -181,6 +182,7 @@ export function ChatView({
   onNewSession,
   isLoadingSession,
   onForkedSession,
+  onNotify,
 }: ChatViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
@@ -928,6 +930,15 @@ export function ChatView({
   const canChangeModel = !session?.agent_session_id && !isProcessing;
   const canChangeMode =
     supportsPlanMode(session?.agent_type) && !session?.agent_session_id && !isProcessing;
+  const planToggleBlockReason = !session
+    ? 'No active session.'
+    : !supportsPlanMode(session.agent_type)
+      ? 'Plan mode is not supported for this agent.'
+      : session.agent_session_id
+        ? 'Cannot change mode while a run is active.'
+        : isProcessing
+          ? 'Wait for the current response to finish.'
+          : null;
   const effectiveAgentMode = session?.agent_mode ?? 'build';
   const queuedMessages = queueData?.messages ?? [];
   const canSendQueued = !!session && !!workspace && !isProcessing;
@@ -977,13 +988,17 @@ export function ChatView({
         event.preventDefault();
         if (canChangeMode) {
           handleToggleAgentMode();
+          return;
+        }
+        if (planToggleBlockReason) {
+          onNotify?.(planToggleBlockReason, 'error');
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canChangeMode, handleToggleAgentMode]);
+  }, [canChangeMode, handleToggleAgentMode, onNotify, planToggleBlockReason]);
 
   useEffect(() => {
     if (!canStop) {
