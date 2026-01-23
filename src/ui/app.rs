@@ -834,19 +834,28 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         guard: &mut TerminalGuard,
     ) -> anyhow::Result<()> {
+        const FRAME_INTERVAL_ACTIVE: Duration = Duration::from_millis(16);  // ~60 FPS for animations
+        const FRAME_INTERVAL_IDLE: Duration = Duration::from_millis(250);   // ~4 FPS when idle
+
         loop {
             let frame_start = Instant::now();
 
-            // Draw UI with timing
-            let draw_start = Instant::now();
-            terminal.draw(|f| self.draw(f))?;
-            let draw_end = Instant::now();
-            self.state.metrics.draw_time = draw_end.duration_since(draw_start);
-            self.state.metrics.on_draw_end(draw_end);
+            // Only draw if needed to save CPU when idle
+            if self.state.need_redraw {
+                let draw_start = Instant::now();
+                terminal.draw(|f| self.draw(f))?;
+                let draw_end = Instant::now();
+                self.state.metrics.draw_time = draw_end.duration_since(draw_start);
+                self.state.metrics.on_draw_end(draw_end);
+                self.state.need_redraw = false;
+            }
 
-            // Calculate remaining sleep time to hit ~60 FPS target
-            // Account for draw time already spent this frame
-            let target_frame = Duration::from_millis(16);
+            // Use shorter interval when animations are active, longer when idle
+            let target_frame = if self.state.needs_animation() {
+                FRAME_INTERVAL_ACTIVE
+            } else {
+                FRAME_INTERVAL_IDLE
+            };
             let elapsed = frame_start.elapsed();
             let sleep_duration = target_frame.saturating_sub(elapsed);
 
@@ -915,7 +924,17 @@ impl App {
                         }
                     }
 
+                    // Request redraw if any scroll events were processed
+                    if pending_scroll_up > 0 || pending_scroll_down > 0 {
+                        self.state.need_redraw = true;
+                    }
+
                     self.flush_scroll_deltas(&mut pending_scroll_up, &mut pending_scroll_down);
+
+                    // Trigger redraw when animations are active
+                    if self.state.needs_animation() {
+                        self.state.need_redraw = true;
+                    }
 
                     self.handle_tick();
 
@@ -924,6 +943,8 @@ impl App {
 
                 // App events from channel
                 Some(event) = self.event_rx.recv() => {
+                    // All app events trigger a redraw
+                    self.state.need_redraw = true;
                     let event_start = Instant::now();
                     self.dispatch_event(event, terminal, guard).await?;
                     self.state.metrics.event_time = event_start.elapsed();
@@ -952,7 +973,11 @@ impl App {
         guard: &mut TerminalGuard,
     ) -> anyhow::Result<()> {
         let effects = match event {
-            AppEvent::Input(input) => self.handle_input_event(input, terminal, guard).await?,
+            AppEvent::Input(input) => {
+                // All input events trigger a redraw
+                self.state.need_redraw = true;
+                self.handle_input_event(input, terminal, guard).await?
+            }
             AppEvent::Tick => {
                 self.handle_tick();
                 Vec::new()
