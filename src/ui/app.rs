@@ -435,6 +435,7 @@ impl App {
             session.id = tab.id;
             session.workspace_id = tab.workspace_id;
             session.model = tab.model;
+            session.model_invalid = tab.model_invalid;
             session.pr_number = tab.pr_number.map(|n| n as u32);
             session.fork_seed_id = tab.fork_seed_id;
             // Restore AI-generated session title
@@ -824,6 +825,7 @@ impl App {
                     session.pr_number.map(|n| n as i32),
                 );
                 tab.id = session.id;
+                tab.model_invalid = session.model_invalid;
                 // Preserve agent mode for session restoration
                 tab.agent_mode = Some(session.agent_mode.as_str().to_string());
                 // Preserve pending user message for interrupted sessions
@@ -3485,6 +3487,7 @@ impl App {
                 }
             } else {
                 session.model = Some(default_model.clone());
+                session.model_invalid = false;
                 session.init_context_for_model();
             }
 
@@ -4216,6 +4219,7 @@ impl App {
         let model_id = self.config().default_model_for(agent_type);
         if let Some(session) = self.state.tab_manager.active_session_mut() {
             session.model = Some(model_id);
+            session.model_invalid = false;
             session.init_context_for_model();
             session.update_status();
         }
@@ -4278,6 +4282,7 @@ impl App {
         new_session.workspace_name = workspace_name;
         new_session.pr_number = pr_number;
         new_session.model = Some(self.config().default_model_for(agent_type));
+        new_session.model_invalid = false;
         new_session.init_context_for_model();
         new_session.update_status();
 
@@ -5720,6 +5725,7 @@ impl App {
         let mut should_stop_footer_spinner = false;
         let mut should_start_footer_spinner = false;
         let mut pending_sidebar_pr_update: Option<(Uuid, PrStatus)> = None;
+        let mut pending_model_invalidation = false;
 
         {
             let Some(session) = self.state.tab_manager.session_mut(tab_index) else {
@@ -6064,6 +6070,12 @@ impl App {
                         content: err.message,
                     };
                     session.chat_view.push(display.to_chat_message());
+                    if err.code.as_deref() == Some("model_not_found") {
+                        session.model = None;
+                        session.model_invalid = true;
+                        session.update_status();
+                        pending_model_invalidation = true;
+                    }
                     if err.is_fatal {
                         session.stop_processing();
                         session.chat_view.finalize_streaming();
@@ -6124,6 +6136,26 @@ impl App {
             self.state
                 .sidebar_data
                 .update_workspace_pr_status(workspace_id, Some(status));
+        }
+        if pending_model_invalidation {
+            if let Some(session_tab_dao) = self.session_tab_dao_clone() {
+                if let Ok(Some(mut tab)) = session_tab_dao.get_by_id(session_id) {
+                    tab.model = None;
+                    tab.model_invalid = true;
+                    if let Err(err) = session_tab_dao.update(&tab) {
+                        tracing::warn!(
+                            error = %err,
+                            session_id = %session_id,
+                            "Failed to persist model invalidation"
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "Failed to load session for model invalidation"
+                    );
+                }
+            }
         }
 
         // Stop footer spinner after session borrow is released
@@ -6704,6 +6736,7 @@ impl App {
             agent_type,
             agent_mode,
             model,
+            model_invalid,
             session_id_to_use,
             working_dir,
             is_new_session_for_title,
@@ -6725,6 +6758,7 @@ impl App {
             let agent_type = session.agent_type;
             let agent_mode = session.agent_mode;
             let model = session.model.clone();
+            let model_invalid = session.model_invalid;
             // Use agent_session_id if available (set by agent after first prompt)
             // Fall back to resume_session_id (clone, don't take - we consume it later)
             let session_id_to_use = session
@@ -6739,6 +6773,7 @@ impl App {
                 agent_type,
                 agent_mode,
                 model,
+                model_invalid,
                 session_id_to_use,
                 working_dir,
                 !has_visible_user_message,
@@ -6759,6 +6794,17 @@ impl App {
                         "Working directory does not exist: {}",
                         working_dir.display()
                     ),
+                };
+                session.chat_view.push(display.to_chat_message());
+            }
+            return Ok(effects);
+        }
+
+        if model_invalid || model.is_none() {
+            if let Some(session) = self.state.tab_manager.session_mut(tab_index) {
+                session.model_invalid = true;
+                let display = MessageDisplay::Error {
+                    content: "Select a model to continue.".to_string(),
                 };
                 session.chat_view.push(display.to_chat_message());
             }
@@ -6922,6 +6968,7 @@ impl App {
                         let input = AgentInput::CodexPrompt {
                             text: prompt_to_send,
                             images: images_to_send,
+                            model: model.clone(),
                         };
                         if let Err(err) = input_tx.send(input).await {
                             tracing::warn!("Failed to send prompt: {}", err);
@@ -7643,6 +7690,7 @@ impl App {
         session.project_name = project_name;
         session.workspace_name = Some(workspace.name.clone());
         session.model = pending.model.clone();
+        session.model_invalid = false;
         session.agent_mode = pending.agent_mode;
         session.fork_seed_id = Some(fork_seed_id);
         session.suppress_next_assistant_reply = true;
