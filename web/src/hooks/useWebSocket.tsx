@@ -240,6 +240,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const stopSession = useCallback(
     (sessionId: string) => {
       ws.stopSession(sessionId);
+      runningSessionsRef.current.delete(sessionId);
+      pendingPromptsRef.current.delete(sessionId);
+      setProcessingSessionIds((prev) => {
+        if (!prev.has(sessionId)) return prev;
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
     },
     [ws]
   );

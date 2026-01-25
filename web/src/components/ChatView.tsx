@@ -193,6 +193,7 @@ export function ChatView({
   const pendingScrollAdjustment = useRef<{ previousHeight: number; previousTop: number } | null>(null);
   const isPrependingHistory = useRef(false);
   const isPinnedToBottom = useRef(true);
+  const forceScrollToBottom = useRef(false);
   const scrollStateBySession = useRef<Record<string, { top: number; pinned: boolean }>>({});
   const scrollSessionId = useRef<string | null>(null);
   const { sendPrompt, respondToControl, stopSession } = useWebSocket();
@@ -387,10 +388,7 @@ export function ChatView({
 
   // Track processing state based on websocket events
   useEffect(() => {
-    if (wsEvents.length === 0) {
-      setIsProcessing(isAwaitingResponse);
-      return;
-    }
+    if (wsEvents.length === 0) return;
 
     const lastEvent = wsEvents[wsEvents.length - 1];
     if (lastEvent.type === 'TurnStarted') {
@@ -405,7 +403,12 @@ export function ChatView({
       setIsProcessing(false);
       setIsAwaitingResponse(false);
     }
-  }, [wsEvents, isAwaitingResponse]);
+  }, [wsEvents]);
+
+  useEffect(() => {
+    if (wsEvents.length > 0) return;
+    setIsProcessing(isAwaitingResponse);
+  }, [wsEvents.length, isAwaitingResponse]);
 
   useEffect(() => {
     setInlinePrompt(null);
@@ -428,6 +431,17 @@ export function ChatView({
     lastEscPressRef.current = null;
     setEscHint(null);
   }, []);
+  const stopSessionAndReset = useCallback(() => {
+    if (!session?.id) return;
+    stopSession(session.id);
+    setIsProcessing(false);
+    setIsAwaitingResponse(false);
+    setProcessingStart(null);
+    setProcessingElapsed(0);
+    wasProcessingRef.current = false;
+    clearEscHint();
+  }, [session?.id, stopSession, clearEscHint]);
+
 
   useEffect(() => () => clearEscHint(), [clearEscHint]);
 
@@ -490,8 +504,7 @@ export function ChatView({
         const now = Date.now();
         const lastPress = lastEscPressRef.current;
         if (lastPress && now - lastPress < ESC_DOUBLE_PRESS_TIMEOUT_MS) {
-          stopSession(session.id);
-          clearEscHint();
+          stopSessionAndReset();
           return;
         }
         lastEscPressRef.current = now;
@@ -507,7 +520,7 @@ export function ChatView({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showRawEvents, session?.id, isProcessing, isAwaitingResponse, stopSession, clearEscHint]);
+  }, [showRawEvents, session?.id, isProcessing, isAwaitingResponse, stopSessionAndReset, clearEscHint]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -626,11 +639,24 @@ export function ChatView({
       return;
     }
 
-    if (!hasInitiallyScrolled || !isPinnedToBottom.current) return;
+    if (!hasInitiallyScrolled) return;
 
-    const behavior = isProcessing ? 'auto' : 'smooth';
+    const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight);
+    const shouldStick = forceScrollToBottom.current || distanceFromBottom < 48 || isPinnedToBottom.current;
+    if (!shouldStick) return;
+
+    const behavior = (isProcessing || isAwaitingResponse) ? 'auto' : 'smooth';
     container.scrollTo({ top: container.scrollHeight, behavior });
-  }, [wsEvents, historyEvents, optimisticUserMessages.length, hasInitiallyScrolled, isProcessing]);
+    isPinnedToBottom.current = true;
+    forceScrollToBottom.current = false;
+  }, [
+    wsEvents,
+    historyEvents,
+    optimisticUserMessages.length,
+    hasInitiallyScrolled,
+    isProcessing,
+    isAwaitingResponse,
+  ]);
 
   useEffect(() => {
     if (!session || wsEvents.length === 0) return;
@@ -783,6 +809,7 @@ export function ChatView({
       }));
     }
 
+    forceScrollToBottom.current = true;
     setIsAwaitingResponse(true);
     sendPrompt(session.id, message, workspace.path, session.model ?? undefined, false, images);
     setDrafts((prev) => ({ ...prev, [session.id]: '' }));
@@ -822,6 +849,7 @@ export function ChatView({
           [session.id]: [...(prev[session.id] ?? []), queued.text],
         }));
       }
+      forceScrollToBottom.current = true;
       setIsAwaitingResponse(true);
       let queuedImagePayload: ImageAttachment[] = [];
       if (queued.images.length > 0) {
@@ -1173,10 +1201,8 @@ export function ChatView({
   }, [effectiveAgentMode, session, updateSessionMutation]);
 
   const handleStopSession = useCallback(() => {
-    if (!session?.id) return;
-    stopSession(session.id);
-    clearEscHint();
-  }, [session?.id, stopSession, clearEscHint]);
+    stopSessionAndReset();
+  }, [stopSessionAndReset]);
 
   // Keyboard shortcut for toggling plan mode (Ctrl+Shift+P)
   useEffect(() => {
