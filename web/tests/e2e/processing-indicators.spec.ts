@@ -28,7 +28,7 @@ test('esc hint and stop button reflect processing state', async ({ page }) => {
   await expect(page.getByPlaceholder('Type a message...')).toBeVisible();
 
   const stopButton = page.getByRole('button', { name: 'Stop session' });
-  await expect(stopButton).toBeDisabled();
+  await expect(stopButton).toHaveCount(0);
 
   await page.evaluate((id) => {
     const ws = (window as unknown as { __mockWebSocket?: { sendMessage: (msg: unknown) => void } })
@@ -36,7 +36,7 @@ test('esc hint and stop button reflect processing state', async ({ page }) => {
     ws?.sendMessage({ type: 'agent_event', session_id: id, event: { type: 'TurnStarted' } });
   }, sessionId);
 
-  await expect(stopButton).toBeEnabled();
+  await expect(stopButton).toHaveCount(1);
 
   const input = page.locator('textarea[data-chat-input="true"]');
   await input.click();
@@ -45,7 +45,7 @@ test('esc hint and stop button reflect processing state', async ({ page }) => {
 
   await page.keyboard.press('Escape');
   await expect(page.getByText('Press Esc again to interrupt')).toHaveCount(0);
-  await expect(stopButton).toBeDisabled();
+  await expect(stopButton).toHaveCount(0);
 });
 
 test('stop clears processing state immediately', async ({ page }) => {
@@ -60,14 +60,14 @@ test('stop clears processing state immediately', async ({ page }) => {
     ws?.sendMessage({ type: 'agent_event', session_id: id, event: { type: 'TurnStarted' } });
   }, sessionId);
 
-  await expect(stopButton).toBeEnabled();
+  await expect(stopButton).toHaveCount(1);
 
   const input = page.locator('textarea[data-chat-input="true"]');
   await input.click();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
-  await expect(stopButton).toBeDisabled();
+  await expect(stopButton).toHaveCount(0);
   await expect(page.getByPlaceholder('Type a message...')).toBeVisible();
   await expect(page.getByPlaceholder('Waiting for response...')).toHaveCount(0);
 });
@@ -78,7 +78,7 @@ test('stop button clears processing state without TurnCompleted', async ({ page 
   await expect(page.getByPlaceholder('Type a message...')).toBeVisible();
 
   const stopButton = page.getByRole('button', { name: 'Stop session' });
-  await expect(stopButton).toBeDisabled();
+  await expect(stopButton).toHaveCount(0);
 
   await page.evaluate((id) => {
     const ws = (window as unknown as { __mockWebSocket?: { sendMessage: (msg: unknown) => void } })
@@ -86,8 +86,8 @@ test('stop button clears processing state without TurnCompleted', async ({ page 
     ws?.sendMessage({ type: 'agent_event', session_id: id, event: { type: 'TurnStarted' } });
   }, sessionId);
 
-  await expect(stopButton).toBeEnabled();
+  await expect(stopButton).toHaveCount(1);
   await stopButton.click();
-  await expect(stopButton).toBeDisabled();
+  await expect(stopButton).toHaveCount(0);
 });
 

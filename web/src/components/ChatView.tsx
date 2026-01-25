@@ -34,7 +34,7 @@ import type {
   QueuedMessage,
   ImageAttachment,
 } from '../types';
-import { MessageSquarePlus, Loader2, Bug, GitBranch, GitPullRequest, Square } from 'lucide-react';
+import { MessageSquarePlus, Loader2, Bug, GitBranch, GitPullRequest } from 'lucide-react';
 import { cn } from '../lib/cn';
 
 interface ChatViewProps {
@@ -189,6 +189,7 @@ export function ChatView({
   onNotify,
 }: ChatViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const pendingScrollAdjustment = useRef<{ previousHeight: number; previousTop: number } | null>(null);
   const isPrependingHistory = useRef(false);
@@ -385,6 +386,23 @@ export function ChatView({
     container.addEventListener('scroll', updatePinnedState, { passive: true });
     return () => container.removeEventListener('scroll', updatePinnedState);
   }, [session?.id]);
+
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = messagesContainerRef.current;
+    if (!container || !content) return;
+
+    const observer = new ResizeObserver(() => {
+      if (!hasInitiallyScrolled) return;
+      if (isPrependingHistory.current) return;
+      if (!isPinnedToBottom.current) return;
+      container.scrollTop = container.scrollHeight;
+    });
+
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [hasInitiallyScrolled]);
 
   // Track processing state based on websocket events
   useEffect(() => {
@@ -1336,22 +1354,6 @@ export function ChatView({
             <GitPullRequest className="h-3.5 w-3.5" />
             PR
           </button>
-
-          <button
-            onClick={handleStopSession}
-            disabled={!canStop}
-            className={cn(
-              'flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors',
-              canStop
-                ? 'text-text-muted hover:bg-surface-elevated hover:text-text'
-                : 'cursor-not-allowed opacity-50 text-text-muted'
-            )}
-            aria-label="Stop session"
-          >
-            <Square className="h-3.5 w-3.5" />
-            Stop
-          </button>
-
           <button
             onClick={() => setShowRawEvents((prev) => !prev)}
             className={cn(
@@ -1374,7 +1376,7 @@ export function ChatView({
             <p>Send a message to start the conversation</p>
           </div>
         ) : (
-          <div className="min-w-0 space-y-4">
+          <div ref={messagesContainerRef} className="min-w-0 space-y-4">
             <div ref={topSentinelRef} />
             {(isLoadingHistory || isLoadingMore) && (
               <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -1453,6 +1455,8 @@ export function ChatView({
         focusKey={session?.id ?? null}
         history={userMessageHistory}
         notice={escHint}
+        canStop={canStop}
+        onStop={handleStopSession}
         modelDisplayName={session?.model_display_name}
         agentType={session?.agent_type}
         agentMode={supportsPlanMode(session?.agent_type) ? effectiveAgentMode : undefined}
