@@ -936,6 +936,20 @@ impl App {
         report
     }
 
+    fn apply_session_persistence_report(&mut self, report: SessionPersistenceReport) {
+        if report.has_errors() {
+            tracing::warn!(
+                error_count = report.error_count(),
+                first_error = %report.first_error_or_unknown(),
+                "Session state persistence completed with warnings"
+            );
+            self.state.set_timed_footer_message(
+                "Warning: some session state could not be saved. Check logs.".to_string(),
+                Duration::from_secs(5),
+            );
+        }
+    }
+
     /// Run the application main loop
     pub async fn run(&mut self) -> anyhow::Result<()> {
         self.spawn_shutdown_listeners();
@@ -1995,20 +2009,7 @@ impl App {
                     })
                     .await;
                     match save_result {
-                        Ok(report) => {
-                            if report.has_errors() {
-                                tracing::warn!(
-                                    error_count = report.error_count(),
-                                    first_error = %report.first_error_or_unknown(),
-                                    "Session state persistence completed with warnings"
-                                );
-                                self.state.set_timed_footer_message(
-                                    "Warning: some session state could not be saved. Check logs."
-                                        .to_string(),
-                                    Duration::from_secs(5),
-                                );
-                            }
-                        }
+                        Ok(report) => self.apply_session_persistence_report(report),
                         Err(e) => {
                             tracing::warn!(error = %e, "Failed to save session state task");
                             self.state.set_timed_footer_message(
@@ -10747,6 +10748,21 @@ mod tests {
             event_rx,
             git_tracker: None,
         }
+    }
+
+    #[test]
+    fn test_apply_session_persistence_report_sets_footer_warning() {
+        let mut app = build_test_app_with_sessions(&[]);
+        let mut report = SessionPersistenceReport::default();
+        report.push("failed to save state".to_string());
+
+        app.apply_session_persistence_report(report);
+
+        assert_eq!(
+            app.state.footer_message.as_deref(),
+            Some("Warning: some session state could not be saved. Check logs.")
+        );
+        assert!(app.state.footer_message_expires_at.is_some());
     }
 
     #[test]

@@ -121,7 +121,7 @@ async fn run_app() -> Result<()> {
             Some(path) => {
                 tools.update_tool(Tool::Git, path.clone());
                 if let Err(e) = save_tool_path(Tool::Git, &path) {
-                    eprintln!("Warning: Failed to save git path to config: {}", e);
+                    tracing::warn!(error = %e, "Failed to save git path to config");
                 }
             }
             None => {
@@ -153,7 +153,7 @@ async fn run_app() -> Result<()> {
                 };
                 tools.update_tool(tool, path.clone());
                 if let Err(e) = save_tool_path(tool, &path) {
-                    eprintln!("Warning: Failed to save agent path to config: {}", e);
+                    tracing::warn!(error = %e, tool = %tool.display_name(), "Failed to save agent path to config");
                 }
             }
             None => {

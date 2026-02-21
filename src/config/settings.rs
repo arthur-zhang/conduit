@@ -760,7 +760,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 if let Err(e) = fs::create_dir_all(parent) {
-                    eprintln!("Failed to create config directory: {}", e);
+                    tracing::warn!(error = %e, path = %parent.display(), "Failed to create config directory");
                     return;
                 }
             }
@@ -768,7 +768,7 @@ impl Config {
 
         // Write the example config
         if let Err(e) = fs::write(path, EXAMPLE_CONFIG) {
-            eprintln!("Failed to write default config: {}", e);
+            tracing::warn!(error = %e, path = %path.display(), "Failed to write default config");
         }
     }
 
