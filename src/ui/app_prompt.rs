@@ -5,9 +5,33 @@ use crate::ui::components::{ChatMessage, MessageRole, TurnSummary};
 /// Maximum seed prompt size in bytes (500KB)
 pub const MAX_SEED_PROMPT_SIZE: usize = 500 * 1024;
 
+/// Maximum handoff prompt size in bytes (450KB)
+pub const MAX_HANDOFF_PROMPT_SIZE: usize = 450 * 1024;
+
 /// Suffix appended when seed prompt is truncated
 const SEED_TRUNCATED_SUFFIX: &str =
     "\n\n[TRUNCATED: transcript exceeded size limit]\n</previous-session-transcript>";
+
+/// Instruction to keep handoff summaries compact and execution-oriented
+const HANDOFF_COMPACTION_STYLE_INSTRUCTION: &str = concat!(
+    "Compress context aggressively: keep only decisions, constraints, completed work, ",
+    "open issues, and the next concrete action. Omit repetition and conversational filler."
+);
+
+/// Marker appended when the handoff transcript is truncated
+const HANDOFF_TRANSCRIPT_TRUNCATED_MARKER: &str =
+    "\n\n[TRUNCATED: older transcript omitted to fit handoff size limit]";
+
+/// Marker appended if the final handoff packet still needs hard truncation
+const HANDOFF_PACKET_TRUNCATED_MARKER: &str =
+    "\n\n[TRUNCATED: handoff packet clipped to size limit]";
+
+/// Closing instruction appended after handoff transcript
+const HANDOFF_CONTINUATION_INSTRUCTION: &str = r#"
+
+## Continuation Instruction
+Continue from this exact state. Do not repeat completed steps unless validation is needed.
+Start by restating the active objective and execute the highest-priority pending action."#;
 
 /// Closing instruction appended after the transcript
 const SEED_CLOSING_INSTRUCTION: &str = r#"
@@ -112,6 +136,69 @@ pub fn build_fork_seed_prompt(messages: &[ChatMessage]) -> String {
 
     // Add closing instruction for non-truncated case
     prompt.push_str(SEED_CLOSING_INSTRUCTION);
+    prompt
+}
+
+/// Build a session handoff prompt from chat history
+pub fn build_handoff_prompt(messages: &[ChatMessage]) -> String {
+    let mut prompt = String::new();
+
+    prompt.push_str("[CONDUIT_SESSION_HANDOFF]\n\n");
+    prompt.push_str("Session handoff packet for a new agent.\n");
+    prompt.push_str("Use this packet as authoritative context for continuation.\n\n");
+    prompt.push_str("## Progress Summary\n");
+    prompt.push_str(HANDOFF_COMPACTION_STYLE_INSTRUCTION);
+    prompt.push('\n');
+    prompt.push_str(&build_handoff_progress_summary(messages));
+    prompt.push_str("\n\n## Recent Transcript\n<handoff-transcript>\n");
+
+    let max_transcript_size = MAX_HANDOFF_PROMPT_SIZE
+        .saturating_sub(prompt.len())
+        .saturating_sub("\n</handoff-transcript>".len())
+        .saturating_sub(HANDOFF_CONTINUATION_INSTRUCTION.len())
+        .saturating_sub(HANDOFF_TRANSCRIPT_TRUNCATED_MARKER.len())
+        .saturating_sub(HANDOFF_PACKET_TRUNCATED_MARKER.len());
+
+    let mut transcript_entries = Vec::new();
+    let mut transcript_len = 0usize;
+    let mut transcript_truncated = false;
+
+    for msg in messages.iter().rev() {
+        let mut entry = format_fork_message(msg);
+        let separator_len = if transcript_entries.is_empty() { 0 } else { 2 };
+        let required = separator_len + entry.len();
+
+        if transcript_len + required > max_transcript_size {
+            transcript_truncated = true;
+            if transcript_entries.is_empty() {
+                let max_entry_size = max_transcript_size.saturating_sub(separator_len);
+                truncate_to_char_boundary(&mut entry, max_entry_size);
+                if !entry.trim().is_empty() {
+                    transcript_entries.push(entry);
+                }
+            }
+            break;
+        }
+
+        transcript_len += required;
+        transcript_entries.push(entry);
+    }
+
+    transcript_entries.reverse();
+    prompt.push_str(&transcript_entries.join("\n\n"));
+    if transcript_truncated {
+        prompt.push_str(HANDOFF_TRANSCRIPT_TRUNCATED_MARKER);
+    }
+    prompt.push_str("\n</handoff-transcript>");
+    prompt.push_str(HANDOFF_CONTINUATION_INSTRUCTION);
+
+    if prompt.len() > MAX_HANDOFF_PROMPT_SIZE {
+        let max_without_marker =
+            MAX_HANDOFF_PROMPT_SIZE.saturating_sub(HANDOFF_PACKET_TRUNCATED_MARKER.len());
+        truncate_to_char_boundary(&mut prompt, max_without_marker);
+        prompt.push_str(HANDOFF_PACKET_TRUNCATED_MARKER);
+    }
+
     prompt
 }
 
@@ -316,5 +403,124 @@ pub fn sanitize_title(title: &str) -> String {
         FALLBACK_TITLE.to_string()
     } else {
         truncated
+    }
+}
+
+fn build_handoff_progress_summary(messages: &[ChatMessage]) -> String {
+    if messages.is_empty() {
+        return "- No prior messages available.".to_string();
+    }
+
+    let mut lines = vec![
+        format!("- Messages captured: {}", messages.len()),
+        format!(
+            "- Tool calls observed: {}",
+            messages
+                .iter()
+                .filter(|msg| msg.role == MessageRole::Tool)
+                .count()
+        ),
+    ];
+
+    if let Some(latest_user) = latest_role_excerpt(messages, MessageRole::User, 220) {
+        lines.push(format!("- Latest user request: {}", latest_user));
+    }
+
+    if let Some(latest_assistant) = latest_role_excerpt(messages, MessageRole::Assistant, 220) {
+        lines.push(format!("- Latest assistant update: {}", latest_assistant));
+    }
+
+    if let Some(latest_summary) = latest_role_excerpt(messages, MessageRole::Summary, 220) {
+        lines.push(format!("- Latest turn summary: {}", latest_summary));
+    }
+
+    lines.join("\n")
+}
+
+fn latest_role_excerpt(
+    messages: &[ChatMessage],
+    role: MessageRole,
+    max_chars: usize,
+) -> Option<String> {
+    messages.iter().rev().find_map(|msg| {
+        if msg.role != role {
+            return None;
+        }
+
+        let raw = if role == MessageRole::Summary {
+            msg.summary.as_ref().map(format_turn_summary_for_seed)?
+        } else {
+            msg.content.clone()
+        };
+
+        let compact = compact_text_for_summary(&raw, max_chars);
+        if compact.is_empty() {
+            None
+        } else {
+            Some(compact)
+        }
+    })
+}
+
+fn compact_text_for_summary(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+
+    let keep = max_chars.saturating_sub(3);
+    let mut out: String = compact.chars().take(keep).collect();
+    out.push_str("...");
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::components::ChatMessage;
+
+    #[test]
+    fn test_build_handoff_prompt_includes_expected_sections_and_markers() {
+        let messages = vec![
+            ChatMessage::user("Need to ship handoff"),
+            ChatMessage::assistant("Done with parser changes."),
+        ];
+
+        let prompt = build_handoff_prompt(&messages);
+
+        assert!(prompt.contains("[CONDUIT_SESSION_HANDOFF]"));
+        assert!(prompt.contains("## Progress Summary"));
+        assert!(prompt.contains(HANDOFF_COMPACTION_STYLE_INSTRUCTION));
+        assert!(prompt.contains("## Recent Transcript"));
+        assert!(prompt.contains("<handoff-transcript>"));
+        assert!(prompt.contains("## Continuation Instruction"));
+    }
+
+    #[test]
+    fn test_build_handoff_prompt_includes_role_tagged_content() {
+        let messages = vec![
+            ChatMessage::user("Please continue from this point."),
+            ChatMessage::assistant("I added tests for prompt formatting."),
+            ChatMessage::tool_with_exit("Bash", "cargo test", "ok", Some(0)),
+        ];
+
+        let prompt = build_handoff_prompt(&messages);
+
+        assert!(prompt.contains("[role=user]"));
+        assert!(prompt.contains("Please continue from this point."));
+        assert!(prompt.contains("[role=assistant]"));
+        assert!(prompt.contains("I added tests for prompt formatting."));
+        assert!(prompt.contains("[role=tool] name=\"Bash\" args=\"cargo test\" exit=0"));
+    }
+
+    #[test]
+    fn test_build_handoff_prompt_marks_truncation_when_oversized() {
+        let oversized = "a".repeat(MAX_HANDOFF_PROMPT_SIZE + 20_000);
+        let messages = vec![ChatMessage::assistant(oversized)];
+
+        let prompt = build_handoff_prompt(&messages);
+
+        assert!(prompt.contains(HANDOFF_TRANSCRIPT_TRUNCATED_MARKER));
+        assert!(prompt.len() <= MAX_HANDOFF_PROMPT_SIZE);
     }
 }

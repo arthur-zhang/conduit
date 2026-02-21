@@ -73,6 +73,17 @@ impl App {
                         return Ok(());
                     }
 
+                    if self.state.model_picker_context == ModelPickerContext::HandoffSelection {
+                        self.state.model_selector_state.hide();
+                        self.state.model_picker_context = ModelPickerContext::SessionSelection;
+                        self.state.input_mode = InputMode::Normal;
+                        match self.execute_handoff_session(agent_type, model_id.clone()) {
+                            Ok(new_effects) => effects.extend(new_effects),
+                            Err(err) => self.show_error("Handoff Failed", &err.to_string()),
+                        }
+                        return Ok(());
+                    }
+
                     if let Some(session) = self.state.tab_manager.active_session_mut() {
                         if Self::reject_cross_agent_switch(session, agent_type) {
                             return Ok(());
@@ -132,6 +143,7 @@ impl App {
             InputMode::SelectingAgent => {
                 let agent_type = self.state.agent_selector_state.selected_agent();
                 self.state.agent_selector_state.hide();
+                self.state.input_mode = InputMode::Normal;
                 self.create_tab_with_agent(agent_type);
             }
             InputMode::SelectingProviders => {

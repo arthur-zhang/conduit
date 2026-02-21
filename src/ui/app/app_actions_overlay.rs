@@ -1,9 +1,14 @@
 use crate::ui::action::Action;
 use crate::ui::app::App;
+use crate::ui::effect::Effect;
 use crate::ui::events::InputMode;
 
 impl App {
-    pub(super) fn handle_overlay_action(&mut self, action: Action) {
+    pub(super) fn handle_overlay_action(
+        &mut self,
+        action: Action,
+        _effects: &mut Vec<Effect>,
+    ) -> anyhow::Result<()> {
         match action {
             Action::ToggleDetails => {
                 if self.state.input_mode == InputMode::ShowingError {
@@ -14,6 +19,7 @@ impl App {
                 if self.state.input_mode == InputMode::SelectingAgent {
                     let agent_type = self.state.agent_selector_state.selected_agent();
                     self.state.agent_selector_state.hide();
+                    self.state.input_mode = InputMode::Normal;
                     self.create_tab_with_agent(agent_type);
                 }
             }
@@ -38,5 +44,7 @@ impl App {
             }
             _ => {}
         }
+
+        Ok(())
     }
 }

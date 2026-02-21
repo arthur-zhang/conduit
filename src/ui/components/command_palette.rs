@@ -109,6 +109,7 @@ impl CommandPaletteState {
             Action::NewWorkspaceUnderCursor,
             Action::OpenPr,
             Action::ForkSession,
+            Action::HandoffSession,
             Action::InterruptAgent,
             Action::ToggleViewMode,
             Action::ShowModelSelector,
@@ -477,6 +478,7 @@ impl Default for CommandPalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::keys::KeyCombo;
 
     fn default_keybindings() -> KeybindingConfig {
         KeybindingConfig::default()
@@ -533,5 +535,23 @@ mod tests {
 
         assert!(has_quit, "Quit should always be visible");
         assert!(has_help, "Help should always be visible");
+    }
+
+    #[test]
+    fn test_command_palette_shows_handoff_command_with_keybinding() {
+        let mut state = CommandPaletteState::new();
+        let mut keybindings = KeybindingConfig::default();
+        let key_combo: KeyCombo = "M-S-h".parse().expect("Should parse M-S-h");
+        keybindings.global.insert(key_combo, Action::HandoffSession);
+
+        state.show(&keybindings, true);
+
+        let entry = state
+            .commands
+            .iter()
+            .find(|cmd| matches!(cmd.action, Action::HandoffSession))
+            .expect("Handoff command should appear in command palette");
+
+        assert_eq!(entry.keybinding.as_deref(), Some("M-S-h"));
     }
 }

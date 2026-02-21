@@ -17,6 +17,10 @@ impl App {
                         == ModelPickerContext::OnboardingDefaultSelection
                     {
                         self.state.pending_new_project_target = None;
+                    } else if self.state.model_picker_context
+                        == ModelPickerContext::HandoffSelection
+                    {
+                        self.state.pending_handoff_request = None;
                     }
                     self.state.model_picker_context = ModelPickerContext::SessionSelection;
                     self.state.input_mode = InputMode::Normal;

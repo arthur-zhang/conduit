@@ -400,6 +400,7 @@ pub fn parse_action(name: &str) -> Option<Action> {
         "new_project" => Some(Action::NewProject),
         "open_pr" => Some(Action::OpenPr),
         "fork_session" => Some(Action::ForkSession),
+        "handoff_session" => Some(Action::HandoffSession),
         "interrupt_agent" => Some(Action::InterruptAgent),
         "toggle_view_mode" => Some(Action::ToggleViewMode),
         "show_model_selector" => Some(Action::ShowModelSelector),
@@ -512,6 +513,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "new_project",
     "open_pr",
     "fork_session",
+    "handoff_session",
     "interrupt_agent",
     "toggle_view_mode",
     "show_model_selector",
@@ -1024,4 +1026,25 @@ pub fn save_enabled_providers(providers: &[AgentType]) -> std::io::Result<()> {
     fs::write(&config_file, doc.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_action_handoff_session() {
+        assert_eq!(
+            parse_action("handoff_session"),
+            Some(Action::HandoffSession)
+        );
+    }
+
+    #[test]
+    fn test_command_names_include_handoff_session() {
+        assert!(
+            COMMAND_NAMES.contains(&"handoff_session"),
+            "handoff_session should be present in COMMAND_NAMES"
+        );
+    }
 }

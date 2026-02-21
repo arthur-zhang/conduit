@@ -22,6 +22,7 @@ pub enum SlashCommand {
     Providers,
     NewSession,
     Fork,
+    Handoff,
 }
 
 impl SlashCommand {
@@ -32,6 +33,7 @@ impl SlashCommand {
             SlashCommand::Providers => "/providers",
             SlashCommand::NewSession => "/new",
             SlashCommand::Fork => "/fork",
+            SlashCommand::Handoff => "/handoff",
         }
     }
 
@@ -42,6 +44,7 @@ impl SlashCommand {
             SlashCommand::Providers => "Select enabled providers",
             SlashCommand::NewSession => "Start a new session",
             SlashCommand::Fork => "Fork current session",
+            SlashCommand::Handoff => "Handoff current session",
         }
     }
 }
@@ -150,6 +153,7 @@ impl SlashMenuState {
             SlashCommandEntry::new(SlashCommand::Providers),
             SlashCommandEntry::new(SlashCommand::NewSession),
             SlashCommandEntry::new(SlashCommand::Fork),
+            SlashCommandEntry::new(SlashCommand::Handoff),
         ]
     }
 
@@ -460,5 +464,32 @@ mod tests {
 
         let entry = state.selected_entry().expect("Should match /fork");
         assert_eq!(entry.command, SlashCommand::Fork);
+    }
+
+    #[test]
+    fn test_slash_menu_includes_handoff_command() {
+        let mut state = SlashMenuState::new();
+        state.show();
+
+        assert!(state
+            .commands
+            .iter()
+            .any(|entry| entry.command == SlashCommand::Handoff && entry.label == "/handoff"));
+    }
+
+    #[test]
+    fn test_slash_menu_filters_handoff_command() {
+        let mut state = SlashMenuState::new();
+        state.show();
+        state.insert_char('h');
+        state.insert_char('a');
+        state.insert_char('n');
+        state.insert_char('d');
+        state.insert_char('o');
+        state.insert_char('f');
+        state.insert_char('f');
+
+        let entry = state.selected_entry().expect("Should match /handoff");
+        assert_eq!(entry.command, SlashCommand::Handoff);
     }
 }

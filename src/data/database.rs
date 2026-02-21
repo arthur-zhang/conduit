@@ -64,9 +64,8 @@ CREATE TABLE IF NOT EXISTS session_tabs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_tabs_order ON session_tabs(tab_index);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_session_tabs_open_workspace
-    ON session_tabs(workspace_id)
-    WHERE is_open = 1 AND workspace_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_session_tabs_workspace_open
+    ON session_tabs(workspace_id, is_open, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS fork_seeds (
     id TEXT PRIMARY KEY,
@@ -513,8 +512,9 @@ CREATE TABLE IF NOT EXISTS fork_seeds_new (
             [],
         )?;
 
-        // Migration 12: Enforce at most one open session per workspace
-        let has_open_workspace_index: bool = conn
+        // Migration 13: Remove legacy uniqueness constraint for open workspace tabs.
+        // Handoff/fork flows may intentionally keep multiple open tabs on the same workspace.
+        let has_legacy_unique_open_workspace_index: bool = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_session_tabs_open_workspace'",
                 [],
@@ -522,32 +522,15 @@ CREATE TABLE IF NOT EXISTS fork_seeds_new (
             )
             .unwrap_or(false);
 
-        if !has_open_workspace_index {
-            // Close duplicate open sessions, keeping the newest per workspace.
-            conn.execute_batch(
-                r#"
-WITH ranked AS (
-    SELECT id,
-           ROW_NUMBER() OVER (
-               PARTITION BY workspace_id
-               ORDER BY datetime(created_at) DESC, id DESC
-           ) AS rn
-    FROM session_tabs
-    WHERE is_open = 1 AND workspace_id IS NOT NULL
-)
-UPDATE session_tabs
-SET is_open = 0
-WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
-"#,
-            )?;
-
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_tabs_open_workspace
-                 ON session_tabs(workspace_id)
-                 WHERE is_open = 1 AND workspace_id IS NOT NULL",
-                [],
-            )?;
+        if has_legacy_unique_open_workspace_index {
+            conn.execute("DROP INDEX IF EXISTS idx_session_tabs_open_workspace", [])?;
         }
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_tabs_workspace_open
+             ON session_tabs(workspace_id, is_open, created_at DESC)",
+            [],
+        )?;
 
         Ok(())
     }
@@ -606,5 +589,46 @@ mod tests {
             Ok(())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_migration_drops_legacy_unique_open_workspace_index() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        let db = Database::open(db_path.clone()).unwrap();
+        db.with_connection(|conn| {
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_tabs_open_workspace
+                 ON session_tabs(workspace_id)
+                 WHERE is_open = 1 AND workspace_id IS NOT NULL",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        drop(db);
+
+        let migrated = Database::open(db_path).unwrap();
+        migrated
+            .with_connection(|conn| {
+                let has_legacy: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type='index' AND name='idx_session_tabs_open_workspace'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let has_new: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type='index' AND name='idx_session_tabs_workspace_open'",
+                    [],
+                    |row| row.get(0),
+                )?;
+
+                assert_eq!(has_legacy, 0);
+                assert_eq!(has_new, 1);
+                Ok(())
+            })
+            .unwrap();
     }
 }

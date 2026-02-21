@@ -420,7 +420,10 @@ fn deserialize_input_history(raw: Option<&str>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{Database, QueuedImageAttachment, QueuedMessageMode};
+    use crate::data::{
+        Database, QueuedImageAttachment, QueuedMessageMode, Repository, RepositoryStore, Workspace,
+        WorkspaceStore,
+    };
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -429,6 +432,23 @@ mod tests {
         let db = Database::open(dir.path().join("test.db")).unwrap();
         let dao = SessionTabStore::new(db.connection());
         (dir, db, dao)
+    }
+
+    fn create_workspace(db: &Database) -> Workspace {
+        let repo_store = RepositoryStore::new(db.connection());
+        let workspace_store = WorkspaceStore::new(db.connection());
+
+        let repo = Repository::from_local_path("repo-a", PathBuf::from("/tmp/repo-a"));
+        repo_store.create(&repo).unwrap();
+
+        let workspace = Workspace::new(
+            repo.id,
+            "workspace-a",
+            "main",
+            PathBuf::from("/tmp/repo-a/workspace-a"),
+        );
+        workspace_store.create(&workspace).unwrap();
+        workspace
     }
 
     #[test]
@@ -533,5 +553,24 @@ mod tests {
         assert_eq!(retrieved.pr_number, Some(42));
         assert_eq!(retrieved.queued_messages.len(), 1);
         assert_eq!(retrieved.input_history, tab.input_history);
+    }
+
+    #[test]
+    fn test_multiple_open_tabs_same_workspace_can_be_saved() {
+        let (_dir, db, dao) = setup_db();
+        let workspace = create_workspace(&db);
+
+        let tab1 = SessionTab::new(0, AgentType::Codex, Some(workspace.id), None, None, None);
+        let tab2 = SessionTab::new(1, AgentType::Claude, Some(workspace.id), None, None, None);
+
+        dao.create(&tab1).unwrap();
+        dao.create(&tab2).unwrap();
+
+        let saved = dao.get_all().unwrap();
+        let matching = saved
+            .iter()
+            .filter(|tab| tab.workspace_id == Some(workspace.id))
+            .count();
+        assert_eq!(matching, 2);
     }
 }

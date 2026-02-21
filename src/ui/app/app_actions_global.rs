@@ -83,6 +83,9 @@ impl App {
             Action::ForkSession => {
                 self.initiate_fork_session();
             }
+            Action::HandoffSession => {
+                self.initiate_handoff_session();
+            }
             Action::InterruptAgent => {
                 self.interrupt_agent();
             }

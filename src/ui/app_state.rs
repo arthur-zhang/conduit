@@ -212,6 +212,8 @@ pub struct AppState {
     pub was_splash_visible: bool,
     /// Pending fork request data (set during confirmation)
     pub pending_fork_request: Option<PendingForkRequest>,
+    /// Pending handoff request data (set before agent selection)
+    pub pending_handoff_request: Option<PendingHandoffRequest>,
     /// Workspace IDs with in-flight sidebar operations
     pub busy_workspaces: HashSet<Uuid>,
     /// Repository IDs with in-flight sidebar operations
@@ -264,6 +266,38 @@ impl std::fmt::Debug for PendingForkRequest {
     }
 }
 
+/// Pending handoff request data captured before creating a takeover session
+#[derive(Clone)]
+pub struct PendingHandoffRequest {
+    pub source_agent_type: AgentType,
+    pub agent_mode: AgentMode,
+    pub reasoning_effort: Option<ReasoningEffort>,
+    pub workspace_id: Option<Uuid>,
+    pub working_dir: Option<PathBuf>,
+    pub project_name: Option<String>,
+    pub workspace_name: Option<String>,
+    pub pr_number: Option<u32>,
+    /// Uses Arc to avoid cloning large handoff prompts during struct clones
+    pub handoff_prompt: Arc<str>,
+}
+
+/// Redacted Debug implementation to avoid leaking transcript content to logs
+impl std::fmt::Debug for PendingHandoffRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingHandoffRequest")
+            .field("source_agent_type", &self.source_agent_type)
+            .field("agent_mode", &self.agent_mode)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("workspace_id", &self.workspace_id)
+            .field("working_dir", &self.working_dir)
+            .field("project_name", &self.project_name)
+            .field("workspace_name", &self.workspace_name)
+            .field("pr_number", &self.pr_number)
+            .field("handoff_prompt_len", &self.handoff_prompt.len())
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollDragTarget {
     Chat,
@@ -291,6 +325,7 @@ pub enum NewProjectTarget {
 pub enum ModelPickerContext {
     SessionSelection,
     OnboardingDefaultSelection,
+    HandoffSelection,
 }
 
 impl AppState {
@@ -345,6 +380,7 @@ impl AppState {
             logo_shine: LogoShineAnimation::new(),
             was_splash_visible: true, // Start on splash screen
             pending_fork_request: None,
+            pending_handoff_request: None,
             busy_workspaces: HashSet::new(),
             busy_repos: HashSet::new(),
             busy_repo_actions: HashSet::new(),
@@ -373,6 +409,7 @@ impl AppState {
         self.missing_tool_dialog_state.hide();
         self.command_palette_state.hide();
         self.slash_menu_state.hide();
+        self.pending_handoff_request = None;
     }
 
     pub fn has_active_overlay(&self) -> bool {

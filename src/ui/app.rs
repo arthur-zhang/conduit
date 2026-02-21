@@ -46,7 +46,9 @@ use crate::git::{PrManager, PrStatus, WorkspaceMode, WorkspaceRepoManager};
 use crate::ui::action::Action;
 use crate::ui::app_prompt;
 use crate::ui::app_queue;
-use crate::ui::app_state::{AppState, ModelPickerContext, NewProjectTarget, PendingForkRequest};
+use crate::ui::app_state::{
+    AppState, ModelPickerContext, NewProjectTarget, PendingForkRequest, PendingHandoffRequest,
+};
 use crate::ui::capabilities::AgentCapabilities;
 use crate::ui::components::{
     dialog_content_area, AddRepoDialog, AgentSelector, BaseDirDialog, ChatMessage, CommandPalette,
@@ -863,14 +865,18 @@ impl App {
         snapshot: SessionStateSnapshot,
         session_tab_dao: Option<SessionTabStore>,
         app_state_dao: Option<AppStateStore>,
-    ) {
+    ) -> SessionPersistenceReport {
+        let mut report = SessionPersistenceReport::default();
+
         let Some(session_tab_dao) = session_tab_dao else {
             tracing::warn!("Session tab DAO unavailable; skipping session persistence");
-            return;
+            report.push("Session tab DAO unavailable; skipping session persistence".to_string());
+            return report;
         };
         let Some(app_state_dao) = app_state_dao else {
             tracing::warn!("App state DAO unavailable; skipping session persistence");
-            return;
+            report.push("App state DAO unavailable; skipping session persistence".to_string());
+            return report;
         };
 
         tracing::info!(
@@ -881,15 +887,19 @@ impl App {
 
         for tab in &snapshot.tabs {
             if let Err(e) = session_tab_dao.upsert(tab) {
-                eprintln!("Warning: Failed to save session tab: {}", e);
                 tracing::warn!(error = %e, tab_index = tab.tab_index, "Failed to save session tab");
+                report.push(format!(
+                    "Failed to save session tab at index {}: {}",
+                    tab.tab_index, e
+                ));
             }
         }
 
         if let Err(e) =
             app_state_dao.set("active_tab_index", &snapshot.active_tab_index.to_string())
         {
-            eprintln!("Warning: Failed to save active tab index: {}", e);
+            tracing::warn!(error = %e, "Failed to save active tab index");
+            report.push(format!("Failed to save active tab index: {}", e));
         }
 
         if let Err(e) = app_state_dao.set(
@@ -900,14 +910,16 @@ impl App {
                 "false"
             },
         ) {
-            eprintln!("Warning: Failed to save sidebar visibility: {}", e);
+            tracing::warn!(error = %e, "Failed to save sidebar visibility");
+            report.push(format!("Failed to save sidebar visibility: {}", e));
         }
 
         if let Err(e) = app_state_dao.set(
             "tree_selected_index",
             &snapshot.tree_selected_index.to_string(),
         ) {
-            eprintln!("Warning: Failed to save tree selection: {}", e);
+            tracing::warn!(error = %e, "Failed to save tree selection");
+            report.push(format!("Failed to save tree selection: {}", e));
         }
 
         let collapsed_ids: Vec<String> = snapshot
@@ -916,11 +928,12 @@ impl App {
             .map(|id| id.to_string())
             .collect();
         if let Err(e) = app_state_dao.set("tree_collapsed_repos", &collapsed_ids.join(",")) {
-            eprintln!("Warning: Failed to save collapsed repos: {}", e);
             tracing::warn!(error = %e, "Failed to save collapsed repos");
+            report.push(format!("Failed to save collapsed repos: {}", e));
         }
 
         tracing::info!("Session state persistence complete");
+        report
     }
 
     /// Run the application main loop
@@ -991,11 +1004,18 @@ impl App {
 
     fn persist_session_state_on_exit(&self) {
         let snapshot = self.snapshot_session_state();
-        Self::persist_session_state(
+        let report = Self::persist_session_state(
             snapshot,
             self.session_tab_dao_clone(),
             self.app_state_dao_clone(),
         );
+        if report.has_errors() {
+            tracing::warn!(
+                error_count = report.error_count(),
+                first_error = %report.first_error_or_unknown(),
+                "Session state persistence on exit completed with warnings"
+            );
+        }
     }
 
     async fn event_loop(
@@ -1737,6 +1757,7 @@ impl App {
             | Action::NewProject
             | Action::NewWorkspaceUnderCursor
             | Action::ForkSession
+            | Action::HandoffSession
             | Action::InterruptAgent
             | Action::ToggleViewMode
             | Action::ShowModelSelector
@@ -1922,17 +1943,17 @@ impl App {
                 self.handle_confirmation_action(action, &mut effects)?;
             }
             Action::ToggleDetails => {
-                self.handle_overlay_action(action);
+                self.handle_overlay_action(action, &mut effects)?;
             }
 
             // ========== Agent Selection ==========
             Action::SelectAgent => {
-                self.handle_overlay_action(action);
+                self.handle_overlay_action(action, &mut effects)?;
             }
 
             // ========== Command Mode ==========
             Action::ShowHelp => {
-                self.handle_overlay_action(action);
+                self.handle_overlay_action(action, &mut effects)?;
             }
             Action::ExecuteCommand => {
                 if self.state.input_mode == InputMode::Command {
@@ -1954,7 +1975,7 @@ impl App {
 
             // ========== Command Palette ==========
             Action::OpenCommandPalette => {
-                self.handle_overlay_action(action);
+                self.handle_overlay_action(action, &mut effects)?;
             }
         }
 
@@ -1969,12 +1990,32 @@ impl App {
                     let snapshot = self.snapshot_session_state();
                     let session_tab_dao = self.session_tab_dao_clone();
                     let app_state_dao = self.app_state_dao_clone();
-                    if let Err(e) = tokio::task::spawn_blocking(move || {
-                        Self::persist_session_state(snapshot, session_tab_dao, app_state_dao);
+                    let save_result = tokio::task::spawn_blocking(move || {
+                        Self::persist_session_state(snapshot, session_tab_dao, app_state_dao)
                     })
-                    .await
-                    {
-                        eprintln!("Warning: Failed to save session state: {}", e);
+                    .await;
+                    match save_result {
+                        Ok(report) => {
+                            if report.has_errors() {
+                                tracing::warn!(
+                                    error_count = report.error_count(),
+                                    first_error = %report.first_error_or_unknown(),
+                                    "Session state persistence completed with warnings"
+                                );
+                                self.state.set_timed_footer_message(
+                                    "Warning: some session state could not be saved. Check logs."
+                                        .to_string(),
+                                    Duration::from_secs(5),
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Failed to save session state task");
+                            self.state.set_timed_footer_message(
+                                "Warning: failed to save session state. Check logs.".to_string(),
+                                Duration::from_secs(5),
+                            );
+                        }
                     }
                 }
                 Effect::StartAgent {
@@ -3019,6 +3060,7 @@ impl App {
             SlashCommand::Reasoning => Some(Action::ShowReasoningSelector),
             SlashCommand::Providers => Some(Action::ShowProvidersSelector),
             SlashCommand::Fork => Some(Action::ForkSession),
+            SlashCommand::Handoff => Some(Action::HandoffSession),
             SlashCommand::NewSession => None,
         }
     }
@@ -3614,6 +3656,23 @@ impl App {
         AgentType::preferred_order()
             .into_iter()
             .find(|provider| enabled.contains(provider))
+    }
+
+    fn preferred_provider_for_handoff(&self, source_agent: AgentType) -> AgentType {
+        let enabled = self.config().effective_enabled_providers(self.tools());
+
+        if let Some(provider) = AgentType::preferred_order()
+            .into_iter()
+            .find(|provider| enabled.contains(provider) && *provider != source_agent)
+        {
+            return provider;
+        }
+
+        if let Some(provider) = self.preferred_provider_for_new_sessions() {
+            return provider;
+        }
+
+        source_agent
     }
 
     fn model_selector_defaults(&self) -> DefaultModelSelection {
@@ -8186,6 +8245,197 @@ impl App {
         Ok(())
     }
 
+    /// Initiate handoff flow - capture source context and open model selection.
+    fn initiate_handoff_session(&mut self) {
+        let (
+            source_agent_type,
+            source_agent_mode,
+            source_reasoning_effort,
+            workspace_id,
+            working_dir,
+            project_name,
+            workspace_name,
+            pr_number,
+            handoff_prompt,
+        ) = {
+            let Some(session) = self.state.tab_manager.active_session() else {
+                self.state.set_timed_footer_message(
+                    "No active session to hand off".to_string(),
+                    Duration::from_secs(3),
+                );
+                return;
+            };
+
+            if session.is_processing {
+                self.show_error("Cannot Handoff", "Wait for the current response to finish.");
+                return;
+            }
+
+            (
+                session.agent_type,
+                session.agent_mode,
+                session.reasoning_effort,
+                session.workspace_id,
+                session.working_dir.clone(),
+                session.project_name.clone(),
+                session.workspace_name.clone(),
+                session.pr_number,
+                app_prompt::build_handoff_prompt(session.chat_view.messages()),
+            )
+        };
+
+        self.state.close_overlays();
+        self.state.pending_handoff_request = Some(PendingHandoffRequest {
+            source_agent_type,
+            agent_mode: source_agent_mode,
+            reasoning_effort: source_reasoning_effort,
+            workspace_id,
+            working_dir,
+            project_name,
+            workspace_name,
+            pr_number,
+            handoff_prompt: Arc::from(handoff_prompt),
+        });
+
+        let mut allowed = self.config().effective_enabled_providers(self.tools());
+        if !allowed.contains(&source_agent_type) {
+            let tool = Self::required_tool(source_agent_type);
+            if self.tools().is_available(tool) {
+                allowed.push(source_agent_type);
+            }
+        }
+
+        if allowed.is_empty() {
+            self.state.pending_handoff_request = None;
+            self.state.set_timed_footer_message(
+                "No enabled providers available. Use /providers.".to_string(),
+                Duration::from_secs(4),
+            );
+            return;
+        }
+
+        let target_provider = self.preferred_provider_for_handoff(source_agent_type);
+        let target_model = self.config().default_model_for(target_provider);
+        let defaults = self.model_selector_defaults();
+        self.state
+            .model_selector_state
+            .set_allowed_providers(Some(allowed));
+        self.state.model_selector_state.show_with_title(
+            Some(target_model),
+            defaults,
+            "Handoff Target Model".to_string(),
+        );
+        self.state.model_picker_context = ModelPickerContext::HandoffSelection;
+        self.state.input_mode = InputMode::SelectingModel;
+    }
+
+    /// Execute handoff after selecting target provider.
+    fn execute_handoff_session(
+        &mut self,
+        target_agent: AgentType,
+        target_model: String,
+    ) -> anyhow::Result<Vec<Effect>> {
+        let Some(pending) = self.state.pending_handoff_request.clone() else {
+            return Err(anyhow!("No pending handoff request."));
+        };
+
+        let target_provider = if self
+            .config()
+            .is_provider_enabled_effective(target_agent, self.tools())
+        {
+            target_agent
+        } else {
+            self.preferred_provider_for_new_sessions()
+                .unwrap_or(target_agent)
+        };
+
+        // Keep track of where we came from so we can recover cleanly on failure.
+        let prev_index = self.state.tab_manager.active_index();
+        let prev_sidebar_visible = self.state.sidebar_state.visible;
+        let prev_sidebar_focused = self.state.sidebar_state.focused;
+        let prev_input_mode = self.state.input_mode;
+        let prev_tree_selected = self.state.sidebar_state.tree_state.selected;
+
+        let mut session = if let Some(dir) = pending.working_dir.clone() {
+            AgentSession::with_working_dir(target_provider, dir)
+        } else {
+            AgentSession::new(target_provider)
+        };
+        session.workspace_id = pending.workspace_id;
+        session.project_name = pending.project_name.clone();
+        session.workspace_name = pending.workspace_name.clone();
+        session.pr_number = pending.pr_number;
+        session.model = Some(target_model);
+        session.init_context_for_model();
+        session.model_invalid = false;
+        session.agent_mode = if session.capabilities.supports_plan_mode {
+            pending.agent_mode
+        } else {
+            AgentMode::Build
+        };
+        session.reasoning_effort = if Self::reasoning_supported(target_provider) {
+            pending.reasoning_effort
+        } else {
+            None
+        };
+        session.suppress_next_assistant_reply = true;
+        session.suppress_next_turn_summary = true;
+        session.update_status();
+
+        let Some(new_index) = self.state.tab_manager.add_session(session) else {
+            self.state.pending_handoff_request = None;
+            return Err(anyhow!("Maximum number of tabs reached."));
+        };
+
+        self.state.tab_manager.switch_to(new_index);
+        self.sync_footer_spinner();
+        self.state.sidebar_state.hide();
+        self.state.input_mode = InputMode::Normal;
+
+        let rollback = |app: &mut Self| {
+            app.close_tab_at_index(new_index);
+            let fallback = prev_index.min(app.state.tab_manager.len().saturating_sub(1));
+            app.state.tab_manager.switch_to(fallback);
+            if prev_sidebar_visible {
+                app.state.sidebar_state.show();
+            } else {
+                app.state.sidebar_state.hide();
+            }
+            app.state.sidebar_state.set_focused(prev_sidebar_focused);
+            app.state.input_mode = prev_input_mode;
+            app.state.sidebar_state.tree_state.selected = prev_tree_selected;
+            app.sync_footer_spinner();
+        };
+
+        let effects =
+            match self.submit_prompt_hidden(pending.handoff_prompt.to_string(), vec![], vec![]) {
+                Ok(effects) if effects.is_empty() => {
+                    rollback(self);
+                    self.state.pending_handoff_request = None;
+                    return Err(anyhow!(
+                        "Failed to start handoff session: no start-agent effect produced."
+                    ));
+                }
+                Ok(effects) => effects,
+                Err(err) => {
+                    rollback(self);
+                    self.state.pending_handoff_request = None;
+                    return Err(err);
+                }
+            };
+
+        if let Some(session) = self.state.tab_manager.session_mut(new_index) {
+            let display = MessageDisplay::System {
+                content: "Handoff context was injected. Waiting for your next prompt.".to_string(),
+            };
+            session.chat_view.push(display.to_chat_message());
+        }
+
+        self.state.pending_handoff_request = None;
+
+        Ok(effects)
+    }
+
     /// Initiate fork session flow - validate and show confirmation dialog
     fn initiate_fork_session(&mut self) {
         let Some(session) = self.state.tab_manager.active_session() else {
@@ -10231,6 +10481,32 @@ struct SessionStateSnapshot {
     collapsed_repo_ids: Vec<uuid::Uuid>,
 }
 
+#[derive(Debug, Default)]
+struct SessionPersistenceReport {
+    errors: Vec<String>,
+}
+
+impl SessionPersistenceReport {
+    fn push(&mut self, message: String) {
+        self.errors.push(message);
+    }
+
+    fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
+    fn error_count(&self) -> usize {
+        self.errors.len()
+    }
+
+    fn first_error_or_unknown(&self) -> &str {
+        self.errors
+            .first()
+            .map(std::string::String::as_str)
+            .unwrap_or("unknown error")
+    }
+}
+
 /// Async helper for generating title and branch name
 async fn generate_title_and_branch_impl(
     tools: ToolAvailability,
@@ -10429,7 +10705,7 @@ mod tests {
     use chrono::Utc;
     use serde_json::json;
     use std::path::PathBuf;
-    use std::sync::OnceLock;
+    use std::sync::{Arc, OnceLock};
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
@@ -10616,6 +10892,22 @@ mod tests {
         assert_eq!(
             App::slash_command_action(SlashCommand::Fork),
             Some(Action::ForkSession)
+        );
+    }
+
+    #[test]
+    fn test_slash_command_action_maps_handoff_when_present() {
+        let mut slash_state = crate::ui::components::SlashMenuState::new();
+        slash_state.show();
+
+        let entry = slash_state
+            .commands
+            .iter()
+            .find(|entry| entry.label == "/handoff")
+            .expect("Expected /handoff command to be present");
+        assert_eq!(
+            App::slash_command_action(entry.command),
+            Some(Action::HandoffSession)
         );
     }
 
@@ -11464,36 +11756,45 @@ mod tests {
     fn test_handle_overlay_show_help() {
         let mut app = build_test_app_with_sessions(&[]);
         app.state.input_mode = InputMode::Normal;
+        let mut effects = Vec::new();
 
-        app.handle_overlay_action(Action::ShowHelp);
+        app.handle_overlay_action(Action::ShowHelp, &mut effects)
+            .unwrap();
 
         assert_eq!(app.state.input_mode, InputMode::ShowingHelp);
         assert!(app.state.help_dialog_state.is_visible());
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn test_handle_overlay_open_command_palette() {
         let mut app = build_test_app_with_sessions(&[]);
         app.state.input_mode = InputMode::Normal;
+        let mut effects = Vec::new();
 
-        app.handle_overlay_action(Action::OpenCommandPalette);
+        app.handle_overlay_action(Action::OpenCommandPalette, &mut effects)
+            .unwrap();
 
         assert_eq!(app.state.input_mode, InputMode::CommandPalette);
         assert!(app.state.command_palette_state.is_visible());
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn test_handle_overlay_toggle_details() {
         let mut app = build_test_app_with_sessions(&[]);
         app.state.input_mode = InputMode::ShowingError;
+        let mut effects = Vec::new();
         app.state
             .error_dialog_state
             .show_with_details("Oops", "Something broke", "trace");
         assert!(!app.state.error_dialog_state.details_expanded);
 
-        app.handle_overlay_action(Action::ToggleDetails);
+        app.handle_overlay_action(Action::ToggleDetails, &mut effects)
+            .unwrap();
 
         assert!(app.state.error_dialog_state.details_expanded);
+        assert!(effects.is_empty());
     }
 
     #[tokio::test]
@@ -11515,8 +11816,11 @@ mod tests {
         assert!(app.state.error_dialog_state.has_details());
         assert_eq!(app.state.input_mode, InputMode::ShowingError);
 
-        app.handle_overlay_action(Action::ToggleDetails);
+        let mut effects = Vec::new();
+        app.handle_overlay_action(Action::ToggleDetails, &mut effects)
+            .unwrap();
         assert!(app.state.error_dialog_state.details_expanded);
+        assert!(effects.is_empty());
     }
 
     #[test]
@@ -11524,8 +11828,10 @@ mod tests {
         let mut app = build_test_app_with_sessions(&[]);
         app.state.input_mode = InputMode::SelectingAgent;
         app.state.agent_selector_state.show();
+        let mut effects = Vec::new();
 
-        app.handle_overlay_action(Action::SelectAgent);
+        app.handle_overlay_action(Action::SelectAgent, &mut effects)
+            .unwrap();
 
         assert_eq!(app.state.input_mode, InputMode::Normal);
         assert!(!app.state.agent_selector_state.is_visible());
@@ -11535,6 +11841,7 @@ mod tests {
             .active_session()
             .expect("session missing");
         assert_eq!(session.agent_type, AgentType::Codex);
+        assert!(effects.is_empty());
     }
 
     #[test]
@@ -11572,6 +11879,26 @@ mod tests {
     }
 
     #[test]
+    fn test_handle_global_handoff_session_opens_model_selector() {
+        let session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[session_id]);
+        let executable = std::env::current_exe().expect("test executable path");
+        assert!(app.tools_mut().update_tool(Tool::Codex, executable));
+        let mut effects = Vec::new();
+
+        app.handle_global_action(Action::HandoffSession, &mut effects);
+
+        assert!(effects.is_empty());
+        assert_eq!(app.state.input_mode, InputMode::SelectingModel);
+        assert!(app.state.model_selector_state.is_visible());
+        assert_eq!(
+            app.state.model_picker_context,
+            ModelPickerContext::HandoffSelection
+        );
+        assert!(app.state.pending_handoff_request.is_some());
+    }
+
+    #[test]
     fn test_handle_global_copy_workspace_path() {
         let session_id = Uuid::new_v4();
         let mut app = build_test_app_with_sessions(&[session_id]);
@@ -11604,6 +11931,37 @@ mod tests {
 
         assert_eq!(app.state.input_mode, InputMode::Normal);
         assert!(app.state.command_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_handle_dialog_cancel_selecting_model_clears_pending_handoff() {
+        let mut app = build_test_app_with_sessions(&[]);
+        app.state.input_mode = InputMode::SelectingModel;
+        app.state
+            .model_selector_state
+            .show(None, app.model_selector_defaults());
+        app.state.model_picker_context = ModelPickerContext::HandoffSelection;
+        app.state.pending_handoff_request = Some(PendingHandoffRequest {
+            source_agent_type: AgentType::Codex,
+            agent_mode: AgentMode::Build,
+            reasoning_effort: None,
+            workspace_id: None,
+            working_dir: None,
+            project_name: None,
+            workspace_name: None,
+            pr_number: None,
+            handoff_prompt: Arc::from("handoff"),
+        });
+
+        app.handle_dialog_action(Action::Cancel);
+
+        assert_eq!(app.state.input_mode, InputMode::Normal);
+        assert!(!app.state.model_selector_state.is_visible());
+        assert_eq!(
+            app.state.model_picker_context,
+            ModelPickerContext::SessionSelection
+        );
+        assert!(app.state.pending_handoff_request.is_none());
     }
 
     #[test]
@@ -11688,6 +12046,73 @@ mod tests {
         assert!(!app.state.agent_selector_state.is_visible());
         assert!(app.state.tab_manager.active_session().is_some());
         assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn test_handle_confirm_action_selecting_model_executes_pending_handoff() {
+        let source_session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[source_session_id]);
+        let executable = std::env::current_exe().expect("test executable path");
+        assert!(app.tools_mut().update_tool(Tool::Codex, executable));
+        let workspace_id = Uuid::new_v4();
+        let working_dir = std::env::current_dir().expect("cwd");
+
+        app.state.pending_handoff_request = Some(PendingHandoffRequest {
+            source_agent_type: AgentType::Codex,
+            agent_mode: AgentMode::Build,
+            reasoning_effort: None,
+            workspace_id: Some(workspace_id),
+            working_dir: Some(working_dir.clone()),
+            project_name: Some("project-a".to_string()),
+            workspace_name: Some("workspace-a".to_string()),
+            pr_number: Some(42),
+            handoff_prompt: Arc::from("[CONDUIT_HANDOFF]\nReady"),
+        });
+        app.state.input_mode = InputMode::SelectingModel;
+        app.state.model_picker_context = ModelPickerContext::HandoffSelection;
+        app.state
+            .model_selector_state
+            .set_allowed_providers(Some(vec![AgentType::Codex]));
+        app.state.model_selector_state.show(
+            Some(app.config().default_model_for(AgentType::Codex)),
+            app.model_selector_defaults(),
+        );
+
+        let mut effects = Vec::new();
+        app.handle_confirm_action(&mut effects).unwrap();
+
+        assert!(app.state.pending_handoff_request.is_none());
+        assert_eq!(app.state.input_mode, InputMode::Normal);
+        assert_eq!(app.state.tab_manager.len(), 2);
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::StartAgent {
+                agent_type: AgentType::Codex,
+                ..
+            }]
+        ));
+
+        let session = app
+            .state
+            .tab_manager
+            .active_session()
+            .expect("session missing");
+        let expected_model = app.config().default_model_for(AgentType::Codex);
+        assert_eq!(session.agent_type, AgentType::Codex);
+        assert_eq!(session.workspace_id, Some(workspace_id));
+        assert_eq!(session.working_dir.as_ref(), Some(&working_dir));
+        assert_eq!(session.project_name.as_deref(), Some("project-a"));
+        assert_eq!(session.workspace_name.as_deref(), Some("workspace-a"));
+        assert_eq!(session.pr_number, Some(42));
+        assert_eq!(session.model.as_deref(), Some(expected_model.as_str()));
+        assert!(session.suppress_next_assistant_reply);
+        assert!(session.suppress_next_turn_summary);
+        assert!(session
+            .chat_view
+            .messages()
+            .iter()
+            .any(|message| message.role == MessageRole::System
+                && message.content.contains("Handoff context was injected")));
     }
 
     #[test]

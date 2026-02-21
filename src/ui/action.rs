@@ -24,6 +24,8 @@ pub enum Action {
     OpenPr,
     /// Fork current session into a new workspace and tab
     ForkSession,
+    /// Handoff current session into a new workspace and tab
+    HandoffSession,
     /// Interrupt current agent processing
     InterruptAgent,
     /// Toggle between Chat and RawEvents view
@@ -241,6 +243,7 @@ impl Action {
             Action::NewWorkspaceUnderCursor => "New workspace (current project)",
             Action::OpenPr => "Open/create PR",
             Action::ForkSession => "Fork session",
+            Action::HandoffSession => "Handoff session",
             Action::InterruptAgent => "Interrupt agent",
             Action::ToggleViewMode => "Toggle view mode",
             Action::ShowModelSelector => "Select model",
@@ -375,6 +378,7 @@ impl Action {
                 | Action::OpenSettings
                 | Action::OpenCommandPalette
                 | Action::ForkSession
+                | Action::HandoffSession
         )
     }
 
@@ -389,6 +393,7 @@ impl Action {
                 | Action::NewWorkspaceUnderCursor
                 | Action::OpenPr
                 | Action::ForkSession
+                | Action::HandoffSession
                 | Action::InterruptAgent
                 | Action::ToggleViewMode
                 | Action::ShowModelSelector
@@ -431,5 +436,20 @@ impl Action {
         } else {
             desc.to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_handoff_session_metadata_matches_fork_behavior() {
+        let handoff = Action::HandoffSession;
+
+        assert_eq!(handoff.description(), "Handoff session");
+        assert!(handoff.opens_dialog());
+        assert!(handoff.show_in_palette());
+        assert_eq!(handoff.palette_description(), "Handoff session...");
     }
 }
