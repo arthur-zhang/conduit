@@ -109,6 +109,34 @@ impl App {
                 self.state.agent_selector_state.hide();
                 self.create_tab_with_agent(agent_type);
             }
+            InputMode::SelectingProviders => {
+                if !self.state.provider_selector_state.validate_non_empty() {
+                    return Ok(());
+                }
+                let providers = self.state.provider_selector_state.selected_providers();
+                if let Err(err) = crate::core::services::ConfigService::set_enabled_providers(
+                    &mut self.core,
+                    providers,
+                ) {
+                    self.state.provider_selector_state.dialog.validation_error =
+                        Some(err.to_string());
+                    return Ok(());
+                }
+
+                self.state.provider_selector_state.hide();
+                self.state.set_timed_footer_message(
+                    "Providers updated".to_string(),
+                    std::time::Duration::from_secs(3),
+                );
+
+                if self.state.pending_onboarding_base_dir_after_providers {
+                    self.state.pending_onboarding_base_dir_after_providers = false;
+                    self.state.base_dir_dialog_state.show();
+                    self.state.input_mode = InputMode::SettingBaseDir;
+                } else {
+                    self.state.input_mode = InputMode::Normal;
+                }
+            }
             InputMode::PickingProject => {
                 if let Some(project) = self.state.project_picker_state.selected_project() {
                     let repo_id = self.add_project_to_sidebar(project.path.clone());

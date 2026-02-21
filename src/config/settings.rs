@@ -3,13 +3,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use toml_edit::{DocumentMut, Item, Table};
+use toml_edit::{Array, DocumentMut, Item, Table};
 
 use crate::agent::{AgentType, ModelRegistry};
 use crate::git::WorkspaceMode;
 use crate::ui::action::Action;
 use crate::util::paths::config_path;
-use crate::util::tools::{Tool, ToolPaths};
+use crate::util::tools::{Tool, ToolAvailability, ToolPaths};
 
 use super::default_keys::default_keybindings;
 use super::keys::{parse_key_notation, KeyContext, KeybindingConfig};
@@ -24,6 +24,8 @@ pub struct Config {
     pub default_agent: AgentType,
     /// Default model ID for the default agent
     pub default_model: Option<String>,
+    /// Explicitly enabled providers (None = not configured yet)
+    pub enabled_providers: Option<Vec<AgentType>>,
     /// Working directory for agent operations
     pub working_dir: PathBuf,
     /// Maximum number of tabs allowed
@@ -172,11 +174,18 @@ pub struct TomlDefaultModelConfig {
     pub model: Option<String>,
 }
 
+/// TOML representation of provider selection configuration
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TomlProvidersConfig {
+    pub enabled: Option<Vec<String>>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             default_agent: AgentType::Claude,
             default_model: None,
+            enabled_providers: None,
             working_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             max_tabs: 10,
             show_token_usage: true,
@@ -278,6 +287,8 @@ pub struct TomlThemeConfig {
 pub struct TomlConfig {
     /// Default model configuration
     pub model: Option<TomlDefaultModelConfig>,
+    /// Enabled provider configuration
+    pub providers: Option<TomlProvidersConfig>,
     /// Keybinding configuration
     pub keys: Option<TomlKeybindings>,
     /// Tool path configuration
@@ -394,6 +405,7 @@ pub fn parse_action(name: &str) -> Option<Action> {
         "show_model_selector" => Some(Action::ShowModelSelector),
         "show_reasoning_selector" => Some(Action::ShowReasoningSelector),
         "show_theme_picker" => Some(Action::ShowThemePicker),
+        "show_providers_selector" => Some(Action::ShowProvidersSelector),
         "toggle_metrics" => Some(Action::ToggleMetrics),
         "dump_debug_state" => Some(Action::DumpDebugState),
         "suspend" => Some(Action::Suspend),
@@ -505,6 +517,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "show_model_selector",
     "show_reasoning_selector",
     "show_theme_picker",
+    "show_providers_selector",
     "toggle_metrics",
     "dump_debug_state",
     "suspend",
@@ -593,6 +606,16 @@ pub const COMMAND_NAMES: &[&str] = &[
 ];
 
 impl Config {
+    fn parse_provider(value: &str) -> Option<AgentType> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "claude" => Some(AgentType::Claude),
+            "codex" => Some(AgentType::Codex),
+            "gemini" => Some(AgentType::Gemini),
+            "opencode" => Some(AgentType::Opencode),
+            _ => None,
+        }
+    }
+
     /// Load configuration from file, merging with defaults
     pub fn load() -> Self {
         let mut config = Config::default();
@@ -618,6 +641,21 @@ impl Config {
                                 config.default_agent = agent_type;
                                 config.default_model = Some(model.id);
                             }
+                        }
+                    }
+
+                    // Load enabled providers
+                    if let Some(providers_cfg) = toml_config.providers {
+                        if let Some(enabled) = providers_cfg.enabled {
+                            let mut providers = Vec::new();
+                            for value in enabled {
+                                if let Some(parsed) = Self::parse_provider(&value) {
+                                    if !providers.contains(&parsed) {
+                                        providers.push(parsed);
+                                    }
+                                }
+                            }
+                            config.enabled_providers = Some(providers);
                         }
                     }
 
@@ -740,6 +778,54 @@ impl Config {
     pub fn with_default_agent(mut self, agent: AgentType) -> Self {
         self.default_agent = agent;
         self
+    }
+
+    fn tool_for_provider(provider: AgentType) -> Tool {
+        match provider {
+            AgentType::Claude => Tool::Claude,
+            AgentType::Codex => Tool::Codex,
+            AgentType::Gemini => Tool::Gemini,
+            AgentType::Opencode => Tool::Opencode,
+        }
+    }
+
+    /// Effective enabled providers after intersecting config with installed tools.
+    ///
+    /// - If providers are configured in config, only those providers are considered enabled.
+    /// - If not configured, all installed providers are enabled.
+    pub fn effective_enabled_providers(&self, tools: &ToolAvailability) -> Vec<AgentType> {
+        let all = [
+            AgentType::Claude,
+            AgentType::Codex,
+            AgentType::Gemini,
+            AgentType::Opencode,
+        ];
+
+        let configured = self.enabled_providers.clone();
+        all.into_iter()
+            .filter(|provider| tools.is_available(Self::tool_for_provider(*provider)))
+            .filter(|provider| {
+                configured
+                    .as_ref()
+                    .is_none_or(|items| items.iter().any(|item| item == provider))
+            })
+            .collect()
+    }
+
+    /// Check if a provider is effectively enabled (configured + installed).
+    pub fn is_provider_enabled_effective(
+        &self,
+        provider: AgentType,
+        tools: &ToolAvailability,
+    ) -> bool {
+        self.effective_enabled_providers(tools)
+            .into_iter()
+            .any(|p| p == provider)
+    }
+
+    /// Update enabled providers in memory.
+    pub fn set_enabled_providers(&mut self, providers: Vec<AgentType>) {
+        self.enabled_providers = Some(providers);
     }
 
     /// Get the default model ID for an agent (config override with fallback)
@@ -891,6 +977,47 @@ pub fn save_default_model(agent_type: AgentType, model_id: &str) -> std::io::Res
 
     doc["model"]["agent"] = toml_edit::value(agent_type.as_str());
     doc["model"]["model"] = toml_edit::value(model_id);
+
+    // Ensure parent directory exists
+    if let Some(parent) = config_file.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    fs::write(&config_file, doc.to_string())?;
+
+    Ok(())
+}
+
+/// Save enabled providers to the config file.
+///
+/// This updates the [providers] section, setting "enabled" as an array of provider IDs.
+pub fn save_enabled_providers(providers: &[AgentType]) -> std::io::Result<()> {
+    let config_file = config_path();
+
+    // Read existing config or start with empty document
+    let contents = if config_file.exists() {
+        fs::read_to_string(&config_file)?
+    } else {
+        String::new()
+    };
+
+    // Parse as TOML document
+    let mut doc: DocumentMut = contents
+        .parse()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    // Ensure [providers] section exists
+    if !doc.contains_key("providers") {
+        doc["providers"] = Item::Table(Table::new());
+    }
+
+    let mut enabled_values = Array::default();
+    for provider in providers {
+        enabled_values.push(provider.as_str());
+    }
+    doc["providers"]["enabled"] = Item::Value(toml_edit::Value::Array(enabled_values));
 
     // Ensure parent directory exists
     if let Some(parent) = config_file.parent() {

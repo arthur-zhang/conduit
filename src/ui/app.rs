@@ -52,9 +52,10 @@ use crate::ui::components::{
     dialog_content_area, AddRepoDialog, AgentSelector, BaseDirDialog, ChatMessage, CommandPalette,
     ConfirmationContext, ConfirmationDialog, ConfirmationType, DefaultModelSelection, ErrorDialog,
     EventDirection, GlobalFooter, HelpDialog, InlinePromptState, InlinePromptType, MessageRole,
-    MissingToolDialog, ModelSelector, ProcessingState, ProjectPicker, PromptAnswer, RawEventsClick,
-    ReasoningSelector, SessionHeader, SessionImportPicker, Sidebar, SidebarData, SlashCommand,
-    SlashMenu, TabBar, TabBarHitTarget, ThemePicker, SIDEBAR_HEADER_ROWS,
+    MissingToolDialog, ModelSelector, ProcessingState, ProjectPicker, PromptAnswer,
+    ProviderSelector, RawEventsClick, ReasoningSelector, SessionHeader, SessionImportPicker,
+    Sidebar, SidebarData, SlashCommand, SlashMenu, TabBar, TabBarHitTarget, ThemePicker,
+    SIDEBAR_HEADER_ROWS,
 };
 use crate::ui::effect::Effect;
 use crate::ui::events::{
@@ -298,6 +299,11 @@ impl App {
         self.state
             .agent_selector_state
             .update_available_agents(&tools);
+        if self.state.provider_selector_state.is_visible() {
+            self.state.provider_selector_state =
+                crate::ui::components::ProviderSelectorState::configure_for(self.config(), &tools);
+            self.state.provider_selector_state.show();
+        }
     }
 }
 
@@ -1731,6 +1737,7 @@ impl App {
             | Action::ShowModelSelector
             | Action::ShowReasoningSelector
             | Action::ShowThemePicker
+            | Action::ShowProvidersSelector
             | Action::OpenSessionImport
             | Action::ImportSession
             | Action::CycleImportFilter
@@ -1847,6 +1854,16 @@ impl App {
                                 effects.extend(
                                     Box::pin(self.execute_action(
                                         Action::ShowReasoningSelector,
+                                        terminal,
+                                        guard,
+                                    ))
+                                    .await?,
+                                );
+                            }
+                            SlashCommand::Providers => {
+                                effects.extend(
+                                    Box::pin(self.execute_action(
+                                        Action::ShowProvidersSelector,
                                         terminal,
                                         guard,
                                     ))
@@ -2952,6 +2969,7 @@ impl App {
                     | InputMode::CommandPalette
                     | InputMode::SlashMenu
                     | InputMode::SelectingTheme
+                    | InputMode::SelectingProviders
                     | InputMode::SelectingModel
                     | InputMode::SelectingReasoning
             )
@@ -3293,21 +3311,8 @@ impl App {
             .as_ref()
             .map(|saved| saved.agent_type)
             .unwrap_or_else(|| {
-                let default_agent = self.config().default_agent;
-                let default_tool = Self::required_tool(default_agent);
-                if self.tools().is_available(default_tool) {
-                    default_agent
-                } else if self.tools().is_available(crate::util::Tool::Claude) {
-                    AgentType::Claude
-                } else if self.tools().is_available(crate::util::Tool::Codex) {
-                    AgentType::Codex
-                } else if self.tools().is_available(crate::util::Tool::Gemini) {
-                    AgentType::Gemini
-                } else if self.tools().is_available(crate::util::Tool::Opencode) {
-                    AgentType::Opencode
-                } else {
-                    AgentType::Claude
-                }
+                self.preferred_provider_for_new_sessions()
+                    .unwrap_or(AgentType::Claude)
             });
 
         let saved_agent_mode = saved_tab.as_ref().map(|saved| {
@@ -3566,8 +3571,32 @@ impl App {
         true
     }
 
+    fn preferred_provider_for_new_sessions(&self) -> Option<AgentType> {
+        let enabled = self.config().effective_enabled_providers(self.tools());
+        if enabled.is_empty() {
+            return None;
+        }
+
+        let default_provider = self.config().default_agent;
+        if enabled.contains(&default_provider) {
+            return Some(default_provider);
+        }
+
+        let preferred_order = [
+            AgentType::Claude,
+            AgentType::Codex,
+            AgentType::Gemini,
+            AgentType::Opencode,
+        ];
+        preferred_order
+            .into_iter()
+            .find(|provider| enabled.contains(provider))
+    }
+
     fn model_selector_defaults(&self) -> DefaultModelSelection {
-        let agent_type = self.config().default_agent;
+        let agent_type = self
+            .preferred_provider_for_new_sessions()
+            .unwrap_or(self.config().default_agent);
         DefaultModelSelection {
             agent_type: Some(agent_type),
             model_id: Some(self.config().default_model_for(agent_type)),
@@ -3579,6 +3608,7 @@ impl App {
             .app_state_dao()
             .and_then(|dao| dao.get("projects_base_dir").ok().flatten());
 
+        self.state.pending_onboarding_base_dir_after_providers = false;
         self.state.close_overlays();
         if let Some(base_dir_str) = base_dir {
             let base_path = if base_dir_str.starts_with('~') {
@@ -3590,6 +3620,15 @@ impl App {
             };
             self.state.project_picker_state.show(base_path);
             self.state.input_mode = InputMode::PickingProject;
+        } else if self.config().enabled_providers.is_none() {
+            self.state.provider_selector_state =
+                crate::ui::components::ProviderSelectorState::configure_for(
+                    self.config(),
+                    self.tools(),
+                );
+            self.state.provider_selector_state.show();
+            self.state.pending_onboarding_base_dir_after_providers = true;
+            self.state.input_mode = InputMode::SelectingProviders;
         } else {
             self.state.base_dir_dialog_state.show();
             self.state.input_mode = InputMode::SettingBaseDir;
@@ -4251,8 +4290,18 @@ impl App {
 
     /// Create a new tab with the selected agent type
     fn create_tab_with_agent(&mut self, agent_type: AgentType) {
-        self.state.tab_manager.new_tab(agent_type);
-        let model_id = self.config().default_model_for(agent_type);
+        let target_provider = if self
+            .config()
+            .is_provider_enabled_effective(agent_type, self.tools())
+        {
+            agent_type
+        } else {
+            self.preferred_provider_for_new_sessions()
+                .unwrap_or(agent_type)
+        };
+
+        self.state.tab_manager.new_tab(target_provider);
+        let model_id = self.config().default_model_for(target_provider);
         if let Some(session) = self.state.tab_manager.active_session_mut() {
             session.model = Some(model_id);
             session.model_invalid = false;
@@ -4455,6 +4504,13 @@ impl App {
             && self.state.reasoning_selector_state.is_visible()
         {
             self.handle_reasoning_selector_click(x, y);
+            return Ok(effects);
+        }
+
+        if self.state.input_mode == InputMode::SelectingProviders
+            && self.state.provider_selector_state.is_visible()
+        {
+            self.handle_provider_selector_click(x, y);
             return Ok(effects);
         }
 
@@ -4753,9 +4809,12 @@ impl App {
             TabBarHitTarget::None => {
                 if self.state.tab_manager.can_add_tab() {
                     self.state.close_overlays();
+                    let default_provider = self
+                        .preferred_provider_for_new_sessions()
+                        .unwrap_or(self.config().default_agent);
                     self.state
                         .agent_selector_state
-                        .show_with_default(self.config().default_agent);
+                        .show_with_default(default_provider);
                     self.state.input_mode = InputMode::SelectingAgent;
                 }
             }
@@ -5123,6 +5182,31 @@ impl App {
                 }
                 self.state.reasoning_selector_state.hide();
                 self.state.input_mode = InputMode::Normal;
+            }
+        }
+    }
+
+    fn handle_provider_selector_click(&mut self, x: u16, y: u16) {
+        let terminal_size = crossterm::terminal::size().unwrap_or((80, 24));
+        let screen = Rect::new(0, 0, terminal_size.0, terminal_size.1);
+        let dialog_area = ProviderSelector::dialog_area(screen);
+
+        if !Self::point_in_rect(x, y, dialog_area) {
+            self.state.provider_selector_state.hide();
+            self.state.pending_onboarding_base_dir_after_providers = false;
+            self.state.input_mode = InputMode::Normal;
+            return;
+        }
+
+        let list_area = ProviderSelector::list_area(screen);
+        if y >= list_area.y && y < list_area.y + list_area.height {
+            let clicked_row = (y - list_area.y) as usize;
+            if self
+                .state
+                .provider_selector_state
+                .select_at_row(clicked_row)
+            {
+                self.state.provider_selector_state.toggle_selected();
             }
         }
     }
@@ -8723,6 +8807,13 @@ impl App {
                         if self.state.base_dir_dialog_state.is_visible() {
                             let dialog = BaseDirDialog::new();
                             dialog.render(size, f.buffer_mut(), &self.state.base_dir_dialog_state);
+                        } else if self.state.provider_selector_state.is_visible() {
+                            let selector = ProviderSelector::new();
+                            selector.render(
+                                size,
+                                f.buffer_mut(),
+                                &self.state.provider_selector_state.dialog,
+                            );
                         } else if self.state.project_picker_state.is_visible() {
                             let picker = ProjectPicker::new();
                             picker.render(size, f.buffer_mut(), &self.state.project_picker_state);
@@ -9131,6 +9222,15 @@ impl App {
         if self.state.agent_selector_state.is_visible() {
             let selector = AgentSelector::new();
             selector.render(size, f.buffer_mut(), &self.state.agent_selector_state);
+        }
+
+        if self.state.provider_selector_state.is_visible() {
+            let selector = ProviderSelector::new();
+            selector.render(
+                size,
+                f.buffer_mut(),
+                &self.state.provider_selector_state.dialog,
+            );
         }
 
         // Draw add repository dialog if open

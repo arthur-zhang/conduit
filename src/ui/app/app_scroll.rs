@@ -31,6 +31,8 @@ impl App {
                 && self.state.model_selector_state.is_visible())
             && !(self.state.input_mode == InputMode::SelectingReasoning
                 && self.state.reasoning_selector_state.is_visible())
+            && !(self.state.input_mode == InputMode::SelectingProviders
+                && self.state.provider_selector_state.is_visible())
     }
 
     pub(super) fn raw_events_list_visible_height(&self) -> usize {
@@ -118,6 +120,15 @@ impl App {
             }
             for _ in 0..*pending_down {
                 self.state.reasoning_selector_state.select_next();
+            }
+        } else if self.state.input_mode == InputMode::SelectingProviders
+            && self.state.provider_selector_state.is_visible()
+        {
+            for _ in 0..*pending_up {
+                self.state.provider_selector_state.select_previous();
+            }
+            for _ in 0..*pending_down {
+                self.state.provider_selector_state.select_next();
             }
         } else if self.state.view_mode == ViewMode::RawEvents {
             let list_height = self.raw_events_list_visible_height();

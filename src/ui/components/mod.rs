@@ -19,8 +19,10 @@ mod logo_shine;
 mod markdown;
 mod missing_tool_dialog;
 mod model_selector;
+mod multi_select_dialog;
 mod path_input;
 mod project_picker;
+mod provider_selector;
 mod raw_events_types;
 mod raw_events_view;
 mod reasoning_selector;
@@ -71,8 +73,10 @@ pub use missing_tool_dialog::{
 pub use model_selector::{
     DefaultModelSelection, ModelSelector, ModelSelectorItem, ModelSelectorState,
 };
+pub use multi_select_dialog::{MultiSelectDialog, MultiSelectDialogState, MultiSelectItem};
 pub use path_input::PathInputState;
 pub use project_picker::{ProjectEntry, ProjectPicker, ProjectPickerState};
+pub use provider_selector::{ProviderSelector, ProviderSelectorState};
 pub use raw_events_types::{
     EventDetailState, EventDirection, RawEventEntry, DETAIL_PANEL_BREAKPOINT,
 };

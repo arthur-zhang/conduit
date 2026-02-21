@@ -47,6 +47,15 @@ codex = "/usr/local/bin/codex"
 gemini = "/usr/local/bin/gemini"
 ```
 
+## Providers
+
+```toml
+[providers]
+enabled = ["claude", "codex", "gemini", "opencode"]
+```
+
+If omitted, all installed providers are enabled by default.
+
 ## Selection & Clipboard
 
 ```toml

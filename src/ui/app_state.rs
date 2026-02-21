@@ -9,8 +9,8 @@ use crate::ui::components::{
     AddRepoDialogState, AgentSelectorState, BaseDirDialogState, CommandPaletteState,
     ConfirmationDialogState, ErrorDialogState, HelpDialogState, KnightRiderSpinner,
     LogoShineAnimation, MissingToolDialogState, ModelSelectorState, ProjectPickerState,
-    ReasoningSelectorState, SessionImportPickerState, SidebarData, SidebarState, SlashMenuState,
-    ThemePickerState,
+    ProviderSelectorState, ReasoningSelectorState, SessionImportPickerState, SidebarData,
+    SidebarState, SlashMenuState, ThemePickerState,
 };
 use crate::ui::events::{InputMode, ViewMode};
 use crate::ui::tab_manager::TabManager;
@@ -168,6 +168,7 @@ pub struct AppState {
     pub reasoning_selector_state: ReasoningSelectorState,
     pub theme_picker_state: ThemePickerState,
     pub agent_selector_state: AgentSelectorState,
+    pub provider_selector_state: ProviderSelectorState,
     pub base_dir_dialog_state: BaseDirDialogState,
     pub project_picker_state: ProjectPickerState,
     pub session_import_state: SessionImportPickerState,
@@ -222,6 +223,8 @@ pub struct AppState {
     pub busy_footer_message: Option<String>,
     /// Pending branch updates captured while workspaces are busy
     pub pending_branch_updates: HashMap<Uuid, Option<String>>,
+    /// Continue onboarding to base-dir after providers selection is confirmed
+    pub pending_onboarding_base_dir_after_providers: bool,
 }
 
 /// Pending fork request data captured before workspace creation
@@ -292,6 +295,7 @@ impl AppState {
             reasoning_selector_state: ReasoningSelectorState::default(),
             theme_picker_state: ThemePickerState::default(),
             agent_selector_state: AgentSelectorState::new(),
+            provider_selector_state: ProviderSelectorState::new(),
             base_dir_dialog_state: BaseDirDialogState::new(),
             project_picker_state: ProjectPickerState::new(),
             session_import_state: SessionImportPickerState::new(),
@@ -332,6 +336,7 @@ impl AppState {
             busy_footer_message_active: false,
             busy_footer_message: None,
             pending_branch_updates: HashMap::new(),
+            pending_onboarding_base_dir_after_providers: false,
         }
     }
 
@@ -344,6 +349,7 @@ impl AppState {
         self.reasoning_selector_state.hide();
         self.theme_picker_state.hide(true); // cancelled=true since we're closing all overlays
         self.agent_selector_state.hide();
+        self.provider_selector_state.hide();
         self.confirmation_dialog_state.hide();
         self.error_dialog_state.hide();
         self.help_dialog_state.hide();
@@ -360,6 +366,7 @@ impl AppState {
             || self.reasoning_selector_state.is_visible()
             || self.theme_picker_state.is_visible()
             || self.agent_selector_state.is_visible()
+            || self.provider_selector_state.is_visible()
             || self.confirmation_dialog_state.visible
             || self.error_dialog_state.is_visible()
             || self.help_dialog_state.is_visible()
@@ -451,6 +458,7 @@ mod tests {
         state.model_selector_state.visible = true;
         state.theme_picker_state.show(None);
         state.agent_selector_state.visible = true;
+        state.provider_selector_state.dialog.visible = true;
         state.confirmation_dialog_state.visible = true;
         state.error_dialog_state.visible = true;
         state.help_dialog_state.visible = true;
@@ -466,6 +474,7 @@ mod tests {
         assert!(!state.model_selector_state.visible);
         assert!(!state.theme_picker_state.is_visible());
         assert!(!state.agent_selector_state.visible);
+        assert!(!state.provider_selector_state.dialog.visible);
         assert!(!state.confirmation_dialog_state.visible);
         assert!(!state.error_dialog_state.visible);
         assert!(!state.help_dialog_state.visible);

@@ -16,6 +16,12 @@ test_ctrl_n_opens_dialog() {
     ctrl "$sock" "n"
     wait_idle "$sock" 300 3000 > /dev/null
 
+    # First-run onboarding now starts with provider selection.
+    if assert_contains "$sock" "Select Providers" "Shows providers selector"; then
+        press "$sock" "Enter"
+        wait_idle "$sock" 300 3000 > /dev/null
+    fi
+
     # Should show the directory dialog
     assert_contains "$sock" "Set Projects Directory" "Ctrl+N opens directory dialog" || return 1
     assert_contains "$sock" "Where do you keep your projects" "Shows directory prompt" || return 1
@@ -32,6 +38,11 @@ test_directory_input() {
     ctrl "$sock" "n"
     wait_idle "$sock" 300 3000 > /dev/null
 
+    if assert_contains "$sock" "Select Providers" "Shows providers selector"; then
+        press "$sock" "Enter"
+        wait_idle "$sock" 300 3000 > /dev/null
+    fi
+
     # Check for input field hints
     assert_contains "$sock" "Enter confirm" "Shows Enter hint" || return 1
     assert_contains "$sock" "Esc cancel" "Shows Escape hint" || return 1
@@ -47,6 +58,11 @@ test_escape_cancels() {
     # Open dialog with Ctrl+N
     ctrl "$sock" "n"
     wait_idle "$sock" 300 3000 > /dev/null
+
+    if assert_contains "$sock" "Select Providers" "Shows providers selector"; then
+        press "$sock" "Enter"
+        wait_idle "$sock" 300 3000 > /dev/null
+    fi
 
     # Verify dialog is open
     assert_contains "$sock" "Set Projects Directory" "Dialog is open" || return 1
@@ -70,6 +86,11 @@ test_type_directory() {
     # Open dialog with Ctrl+N
     ctrl "$sock" "n"
     wait_idle "$sock" 300 3000 > /dev/null
+
+    if assert_contains "$sock" "Select Providers" "Shows providers selector"; then
+        press "$sock" "Enter"
+        wait_idle "$sock" 300 3000 > /dev/null
+    fi
 
     # Clear existing text and type new path
     # Use Ctrl+U to clear the line

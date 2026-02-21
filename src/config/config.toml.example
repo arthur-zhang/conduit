@@ -41,6 +41,15 @@
 # model = "opus"
 
 # ============================================================================
+# Providers
+# ============================================================================
+# Configure which providers appear in model selection and onboarding.
+# If omitted, all installed providers are enabled by default.
+#
+# [providers]
+# enabled = ["claude", "codex", "gemini", "opencode"]
+
+# ============================================================================
 # Tool Paths
 # ============================================================================
 # Queue + Steering Configuration

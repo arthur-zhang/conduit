@@ -25,6 +25,9 @@ impl App {
                 InputMode::SelectingAgent => {
                     self.state.agent_selector_state.select_next();
                 }
+                InputMode::SelectingProviders => {
+                    self.state.provider_selector_state.select_next();
+                }
                 InputMode::PickingProject => {
                     self.state.project_picker_state.select_next();
                 }
@@ -63,6 +66,9 @@ impl App {
                 }
                 InputMode::SelectingAgent => {
                     self.state.agent_selector_state.select_previous();
+                }
+                InputMode::SelectingProviders => {
+                    self.state.provider_selector_state.select_previous();
                 }
                 InputMode::PickingProject => {
                     self.state.project_picker_state.select_prev();

@@ -317,7 +317,18 @@ impl SessionService {
                     |_| Ok(()),
                 )?;
 
-                let default_agent = core.config().default_agent;
+                let default_agent = if core
+                    .config()
+                    .is_provider_enabled_effective(core.config().default_agent, core.tools())
+                {
+                    core.config().default_agent
+                } else {
+                    core.config()
+                        .effective_enabled_providers(core.tools())
+                        .into_iter()
+                        .next()
+                        .unwrap_or(core.config().default_agent)
+                };
                 let session = SessionTab::new(
                     0,
                     default_agent,

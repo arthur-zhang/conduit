@@ -34,6 +34,8 @@ pub enum Action {
     ShowReasoningSelector,
     /// Show theme picker dialog
     ShowThemePicker,
+    /// Show providers selector dialog
+    ShowProvidersSelector,
     /// Toggle performance metrics display
     ToggleMetrics,
     /// Dump debug state to file
@@ -244,6 +246,7 @@ impl Action {
             Action::ShowModelSelector => "Select model",
             Action::ShowReasoningSelector => "Select reasoning effort",
             Action::ShowThemePicker => "Change theme",
+            Action::ShowProvidersSelector => "Select providers",
             Action::ToggleMetrics => "Toggle metrics",
             Action::DumpDebugState => "Dump debug state",
             Action::Suspend => "Suspend",
@@ -364,6 +367,7 @@ impl Action {
                 | Action::ShowModelSelector
                 | Action::ShowReasoningSelector
                 | Action::ShowThemePicker
+                | Action::ShowProvidersSelector
                 | Action::OpenQueueEditor
                 | Action::OpenSessionImport
                 | Action::ShowHelp
@@ -390,6 +394,7 @@ impl Action {
                 | Action::ShowModelSelector
                 | Action::ShowReasoningSelector
                 | Action::ShowThemePicker
+                | Action::ShowProvidersSelector
                 | Action::ToggleMetrics
                 | Action::DumpDebugState
                 | Action::CopyWorkspacePath

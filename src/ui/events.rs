@@ -212,6 +212,8 @@ pub enum InputMode {
     SelectingReasoning,
     /// Selecting theme
     SelectingTheme,
+    /// Selecting enabled providers
+    SelectingProviders,
     /// Setting base projects directory
     SettingBaseDir,
     /// Picking a project from the list

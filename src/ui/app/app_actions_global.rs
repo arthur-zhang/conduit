@@ -95,8 +95,25 @@ impl App {
             Action::ShowModelSelector => {
                 if let Some(session) = self.state.tab_manager.active_session() {
                     let model = session.model.clone();
+                    let mut allowed = self.config().effective_enabled_providers(self.tools());
+                    if !allowed.contains(&session.agent_type) {
+                        let tool = Self::required_tool(session.agent_type);
+                        if self.tools().is_available(tool) {
+                            allowed.push(session.agent_type);
+                        }
+                    }
+                    if allowed.is_empty() {
+                        self.state.set_timed_footer_message(
+                            "No enabled providers available. Use /providers.".to_string(),
+                            Duration::from_secs(4),
+                        );
+                        return;
+                    }
                     self.state.close_overlays();
                     let defaults = self.model_selector_defaults();
+                    self.state
+                        .model_selector_state
+                        .set_allowed_providers(Some(allowed));
                     self.state.model_selector_state.show(model, defaults);
                     self.state.input_mode = InputMode::SelectingModel;
                 }
@@ -124,6 +141,17 @@ impl App {
                 let theme_path = self.config().theme_path.clone();
                 self.state.theme_picker_state.show(theme_path.as_deref());
                 self.state.input_mode = InputMode::SelectingTheme;
+            }
+            Action::ShowProvidersSelector => {
+                self.state.close_overlays();
+                self.state.pending_onboarding_base_dir_after_providers = false;
+                self.state.provider_selector_state =
+                    crate::ui::components::ProviderSelectorState::configure_for(
+                        self.config(),
+                        self.tools(),
+                    );
+                self.state.provider_selector_state.show();
+                self.state.input_mode = InputMode::SelectingProviders;
             }
             Action::OpenSessionImport => {
                 self.state.close_overlays();

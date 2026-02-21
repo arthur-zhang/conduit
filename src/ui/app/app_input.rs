@@ -300,6 +300,7 @@ impl App {
             && !self.state.project_picker_state.is_visible()
             && !self.state.add_repo_dialog_state.is_visible()
             && self.state.input_mode != InputMode::SelectingAgent
+            && self.state.input_mode != InputMode::SelectingProviders
             && self.state.input_mode != InputMode::ShowingError
         {
             // Handle Ctrl+P to open command palette
@@ -416,6 +417,14 @@ impl App {
             self.state.close_overlays();
             self.state.slash_menu_state.show();
             self.state.input_mode = InputMode::SlashMenu;
+            return Ok(Vec::new());
+        }
+
+        if self.state.input_mode == InputMode::SelectingProviders
+            && key.modifiers.is_empty()
+            && key.code == KeyCode::Char(' ')
+        {
+            self.state.provider_selector_state.toggle_selected();
             return Ok(Vec::new());
         }
 
@@ -545,6 +554,9 @@ impl App {
             InputMode::SelectingReasoning => {
                 self.state.reasoning_selector_state.insert_char(c);
             }
+            InputMode::SelectingProviders => {
+                self.state.provider_selector_state.insert_char(c);
+            }
             _ => {}
         }
     }
@@ -636,6 +648,10 @@ impl App {
                 let sanitized = pasted.replace('\n', " ");
                 self.state.reasoning_selector_state.insert_str(&sanitized);
             }
+            InputMode::SelectingProviders => {
+                let sanitized = pasted.replace('\n', " ");
+                self.state.provider_selector_state.insert_str(&sanitized);
+            }
             _ => {}
         }
     }
@@ -670,6 +686,10 @@ impl App {
                     && self.state.reasoning_selector_state.is_visible()
                 {
                     self.state.reasoning_selector_state.select_previous();
+                } else if self.state.input_mode == InputMode::SelectingProviders
+                    && self.state.provider_selector_state.is_visible()
+                {
+                    self.state.provider_selector_state.select_previous();
                 } else if self.handle_tab_bar_wheel(x, y, true) {
                     return Ok(Vec::new());
                 } else if self.state.view_mode == ViewMode::RawEvents {
@@ -707,6 +727,10 @@ impl App {
                     && self.state.reasoning_selector_state.is_visible()
                 {
                     self.state.reasoning_selector_state.select_next();
+                } else if self.state.input_mode == InputMode::SelectingProviders
+                    && self.state.provider_selector_state.is_visible()
+                {
+                    self.state.provider_selector_state.select_next();
                 } else if self.handle_tab_bar_wheel(x, y, false) {
                     return Ok(Vec::new());
                 } else if self.state.view_mode == ViewMode::RawEvents {

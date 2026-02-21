@@ -26,6 +26,11 @@ impl App {
                     self.state.agent_selector_state.hide();
                     self.state.input_mode = InputMode::Normal;
                 }
+                InputMode::SelectingProviders => {
+                    self.state.provider_selector_state.hide();
+                    self.state.pending_onboarding_base_dir_after_providers = false;
+                    self.state.input_mode = InputMode::Normal;
+                }
                 InputMode::PickingProject => {
                     self.state.project_picker_state.hide();
                     self.state.input_mode = InputMode::Normal;

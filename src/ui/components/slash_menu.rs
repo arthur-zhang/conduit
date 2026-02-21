@@ -19,6 +19,7 @@ use super::{
 pub enum SlashCommand {
     Model,
     Reasoning,
+    Providers,
     NewSession,
 }
 
@@ -27,6 +28,7 @@ impl SlashCommand {
         match self {
             SlashCommand::Model => "/model",
             SlashCommand::Reasoning => "/reasoning",
+            SlashCommand::Providers => "/providers",
             SlashCommand::NewSession => "/new",
         }
     }
@@ -35,6 +37,7 @@ impl SlashCommand {
         match self {
             SlashCommand::Model => "Select model",
             SlashCommand::Reasoning => "Set reasoning effort",
+            SlashCommand::Providers => "Select enabled providers",
             SlashCommand::NewSession => "Start a new session",
         }
     }
@@ -141,6 +144,7 @@ impl SlashMenuState {
         vec![
             SlashCommandEntry::new(SlashCommand::Model),
             SlashCommandEntry::new(SlashCommand::Reasoning),
+            SlashCommandEntry::new(SlashCommand::Providers),
             SlashCommandEntry::new(SlashCommand::NewSession),
         ]
     }

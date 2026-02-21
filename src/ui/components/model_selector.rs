@@ -70,6 +70,8 @@ pub struct ModelSelectorState {
     current_model_id: Option<String>,
     /// Default model IDs (per agent)
     default_model: DefaultModelSelection,
+    /// Optional provider allowlist for section filtering
+    allowed_providers: Option<Vec<AgentType>>,
 }
 
 impl Default for ModelSelectorState {
@@ -80,7 +82,7 @@ impl Default for ModelSelectorState {
 
 impl ModelSelectorState {
     pub fn new() -> Self {
-        let items = Self::build_items();
+        let items = Self::build_items(None);
         let selectable_indices: Vec<usize> = items
             .iter()
             .enumerate()
@@ -101,35 +103,49 @@ impl ModelSelectorState {
             search: TextInputState::new(),
             current_model_id: None,
             default_model: DefaultModelSelection::default(),
+            allowed_providers: None,
         }
     }
 
-    fn build_items() -> Vec<ModelSelectorItem> {
+    fn build_items(allowed_providers: Option<&[AgentType]>) -> Vec<ModelSelectorItem> {
         let mut items = Vec::new();
+        let is_allowed = |agent_type: AgentType| {
+            allowed_providers
+                .as_ref()
+                .is_none_or(|providers| providers.contains(&agent_type))
+        };
 
         // Claude Code section
-        items.push(ModelSelectorItem::SectionHeader(AgentType::Claude));
-        for model in ModelRegistry::claude_models() {
-            items.push(ModelSelectorItem::Model(model));
+        if is_allowed(AgentType::Claude) {
+            items.push(ModelSelectorItem::SectionHeader(AgentType::Claude));
+            for model in ModelRegistry::claude_models() {
+                items.push(ModelSelectorItem::Model(model));
+            }
         }
 
         // Codex section
-        items.push(ModelSelectorItem::SectionHeader(AgentType::Codex));
-        for model in ModelRegistry::codex_models() {
-            items.push(ModelSelectorItem::Model(model));
+        if is_allowed(AgentType::Codex) {
+            items.push(ModelSelectorItem::SectionHeader(AgentType::Codex));
+            for model in ModelRegistry::codex_models() {
+                items.push(ModelSelectorItem::Model(model));
+            }
         }
 
         // Gemini section
-        items.push(ModelSelectorItem::SectionHeader(AgentType::Gemini));
-        for model in ModelRegistry::gemini_models() {
-            items.push(ModelSelectorItem::Model(model));
+        if is_allowed(AgentType::Gemini) {
+            items.push(ModelSelectorItem::SectionHeader(AgentType::Gemini));
+            for model in ModelRegistry::gemini_models() {
+                items.push(ModelSelectorItem::Model(model));
+            }
         }
 
-        let opencode_models = ModelRegistry::opencode_models();
-        if !opencode_models.is_empty() {
-            items.push(ModelSelectorItem::SectionHeader(AgentType::Opencode));
-            for model in opencode_models {
-                items.push(ModelSelectorItem::Model(model));
+        if is_allowed(AgentType::Opencode) {
+            let opencode_models = ModelRegistry::opencode_models();
+            if !opencode_models.is_empty() {
+                items.push(ModelSelectorItem::SectionHeader(AgentType::Opencode));
+                for model in opencode_models {
+                    items.push(ModelSelectorItem::Model(model));
+                }
             }
         }
 
@@ -145,7 +161,7 @@ impl ModelSelectorState {
         self.scroll_offset = 0;
 
         // Rebuild items to pick up registry changes
-        self.items = Self::build_items();
+        self.items = Self::build_items(self.allowed_providers.as_deref());
         self.selectable_indices = self
             .items
             .iter()
@@ -158,6 +174,10 @@ impl ModelSelectorState {
 
         self.update_filter();
         self.select_current_model();
+    }
+
+    pub fn set_allowed_providers(&mut self, allowed_providers: Option<Vec<AgentType>>) {
+        self.allowed_providers = allowed_providers;
     }
 
     /// Hide the dialog

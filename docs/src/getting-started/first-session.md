@@ -33,7 +33,12 @@ If an agent isn't found, you can configure its path in settings (`s` from sideba
 
 ### Open the Project Picker
 
-Press `Ctrl+N`. The picker shows:
+Press `Ctrl+N`.
+
+On first-time onboarding, Conduit first asks which providers you want enabled.
+Installed providers are pre-selected; press `Enter` to continue.
+
+Then the project picker shows:
 
 - Recent repositories you've worked with
 - Fuzzy search as you type

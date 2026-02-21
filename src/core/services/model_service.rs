@@ -1,4 +1,4 @@
-use crate::agent::{AgentType, ModelRegistry};
+use crate::agent::ModelRegistry;
 use crate::core::dto::{ListModelsDto, ModelGroupDto, ModelInfoDto};
 use crate::core::services::config_service::ConfigService;
 use crate::core::ConduitCore;
@@ -7,12 +7,7 @@ pub struct ModelService;
 
 impl ModelService {
     pub fn list_models(core: &ConduitCore) -> ListModelsDto {
-        let agent_types = [
-            AgentType::Claude,
-            AgentType::Codex,
-            AgentType::Gemini,
-            AgentType::Opencode,
-        ];
+        let agent_types = core.config().effective_enabled_providers(core.tools());
         let (default_agent, default_model) = ConfigService::default_model(core);
 
         let groups = agent_types
