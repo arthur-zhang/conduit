@@ -6,15 +6,18 @@
 
 - **Tool Execution** — Read, write, and execute commands
 - **Build/Plan Modes** — Toggle between full execution and read-only
-- **Multiple Models** — Opus 4.5, Sonnet 4.5
-- **200K Context** — Large context window
+- **Multiple Models** — Opus 4.6, Sonnet 4.6, Opus 4.6 [1m], Sonnet 4.6 [1m], Haiku 4.5
+- **200K / 1M Context** — Choose standard or extended context variants
 
 ## Models
 
 | Model | Best For |
 |-------|----------|
-| Opus 4.5 | Complex reasoning, architecture |
-| Sonnet 4.5 | Balanced performance (default) |
+| Opus 4.6 | Most capable for complex work (default) |
+| Sonnet 4.6 | Best for everyday tasks |
+| Opus 4.6 [1m] | Opus 4.6 with expanded context |
+| Sonnet 4.6 [1m] | Sonnet 4.6 with expanded context |
+| Haiku 4.5 | Fastest for quick answers |
 
 ## Build vs Plan Mode
 

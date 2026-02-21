@@ -59,6 +59,8 @@ pub struct ModelRegistry;
 impl ModelRegistry {
     /// Default context window for Claude models (200K tokens)
     pub const CLAUDE_CONTEXT_WINDOW: i64 = 200_000;
+    /// Extended context window for Claude 1M variants
+    pub const CLAUDE_1M_CONTEXT_WINDOW: i64 = 1_000_000;
 
     /// Default context window for Codex models (272K tokens)
     pub const CODEX_CONTEXT_WINDOW: i64 = 272_000;
@@ -176,26 +178,42 @@ impl ModelRegistry {
             ModelInfo::new(
                 AgentType::Claude,
                 "opus",
-                "Opus 4.5",
+                "Opus 4.6",
                 "opus",
-                "Most powerful, best for complex reasoning",
+                "Most capable for complex work",
                 Self::CLAUDE_CONTEXT_WINDOW,
             )
             .as_default(),
             ModelInfo::new(
                 AgentType::Claude,
+                "opus[1m]",
+                "Opus 4.6 [1m]",
+                "opus[1m]",
+                "Opus 4.6 with 1M context",
+                Self::CLAUDE_1M_CONTEXT_WINDOW,
+            ),
+            ModelInfo::new(
+                AgentType::Claude,
                 "sonnet",
-                "Sonnet 4.5",
+                "Sonnet 4.6",
                 "sonnet",
-                "Fast and capable, best for most tasks",
+                "Sonnet 4.6, best for everyday tasks",
                 Self::CLAUDE_CONTEXT_WINDOW,
+            ),
+            ModelInfo::new(
+                AgentType::Claude,
+                "sonnet[1m]",
+                "Sonnet 4.6 [1m]",
+                "sonnet[1m]",
+                "Sonnet 4.6 with 1M context",
+                Self::CLAUDE_1M_CONTEXT_WINDOW,
             ),
             ModelInfo::new(
                 AgentType::Claude,
                 "haiku",
                 "Haiku 4.5",
                 "haiku",
-                "Fastest, great for simple tasks",
+                "Haiku 4.5, fastest for quick answers",
                 Self::CLAUDE_CONTEXT_WINDOW,
             ),
         ]
@@ -206,19 +224,27 @@ impl ModelRegistry {
         vec![
             ModelInfo::new(
                 AgentType::Codex,
-                "gpt-5.2-codex",
-                "GPT-5.2-Codex",
-                "gpt-5.2-codex",
-                "Latest Codex model",
+                "gpt-5.3-codex",
+                "GPT-5.3-Codex",
+                "gpt-5.3-codex",
+                "Latest frontier agentic coding model",
                 Self::CODEX_CONTEXT_WINDOW,
             )
             .as_default(),
             ModelInfo::new(
                 AgentType::Codex,
-                "gpt-5.2",
-                "GPT-5.2",
-                "gpt-5.2",
-                "Fast and efficient",
+                "gpt-5.3-codex-spark",
+                "GPT-5.3-Codex-Spark",
+                "gpt-5.3-codex-spark",
+                "Ultra-fast coding model",
+                Self::CODEX_CONTEXT_WINDOW,
+            ),
+            ModelInfo::new(
+                AgentType::Codex,
+                "gpt-5.2-codex",
+                "GPT-5.2-Codex",
+                "gpt-5.2-codex",
+                "Frontier agentic coding model",
                 Self::CODEX_CONTEXT_WINDOW,
             ),
             ModelInfo::new(
@@ -226,7 +252,23 @@ impl ModelRegistry {
                 "gpt-5.1-codex-max",
                 "GPT-5.1-Codex-Max",
                 "gpt-5.1-codex-max",
-                "Maximum capability",
+                "Codex-optimized flagship for deep and fast reasoning",
+                Self::CODEX_CONTEXT_WINDOW,
+            ),
+            ModelInfo::new(
+                AgentType::Codex,
+                "gpt-5.2",
+                "GPT-5.2",
+                "gpt-5.2",
+                "Latest frontier model with improvements across knowledge, reasoning and coding",
+                Self::CODEX_CONTEXT_WINDOW,
+            ),
+            ModelInfo::new(
+                AgentType::Codex,
+                "gpt-5.1-codex-mini",
+                "GPT-5.1-Codex-Mini",
+                "gpt-5.1-codex-mini",
+                "Optimized for Codex: cheaper and faster, but less capable",
                 Self::CODEX_CONTEXT_WINDOW,
             ),
         ]
@@ -302,7 +344,7 @@ impl ModelRegistry {
     pub fn default_model(agent_type: AgentType) -> String {
         match agent_type {
             AgentType::Claude => "opus".to_string(),
-            AgentType::Codex => "gpt-5.2-codex".to_string(),
+            AgentType::Codex => "gpt-5.3-codex".to_string(),
             AgentType::Gemini => "gemini-2.5-pro".to_string(),
             AgentType::Opencode => Self::OPENCODE_DEFAULT_MODEL_ID.to_string(),
         }

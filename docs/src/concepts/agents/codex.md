@@ -6,13 +6,18 @@
 
 - **Full Automation** — Executes code autonomously
 - **272K Context** — Extended context window
-- **GPT-5.2-Codex** — OpenAI's latest coding model
+- **GPT-5.3-Codex** — Latest frontier agentic coding model
 
 ## Models
 
 | Model | Best For |
 |-------|----------|
-| GPT-5.2-Codex | Code generation, analysis, and execution |
+| GPT-5.3-Codex | Latest frontier agentic coding model (default) |
+| GPT-5.3-Codex-Spark | Ultra-fast coding model |
+| GPT-5.2-Codex | Frontier agentic coding model |
+| GPT-5.1-Codex-Max | Deep and fast reasoning |
+| GPT-5.2 | Frontier general model for knowledge, reasoning, and coding |
+| GPT-5.1-Codex-Mini | Cheaper/faster Codex option |
 
 ## Automation Mode
 
