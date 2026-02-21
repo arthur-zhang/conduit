@@ -21,6 +21,7 @@ pub enum SlashCommand {
     Reasoning,
     Providers,
     NewSession,
+    Fork,
 }
 
 impl SlashCommand {
@@ -30,6 +31,7 @@ impl SlashCommand {
             SlashCommand::Reasoning => "/reasoning",
             SlashCommand::Providers => "/providers",
             SlashCommand::NewSession => "/new",
+            SlashCommand::Fork => "/fork",
         }
     }
 
@@ -39,6 +41,7 @@ impl SlashCommand {
             SlashCommand::Reasoning => "Set reasoning effort",
             SlashCommand::Providers => "Select enabled providers",
             SlashCommand::NewSession => "Start a new session",
+            SlashCommand::Fork => "Fork current session",
         }
     }
 }
@@ -146,6 +149,7 @@ impl SlashMenuState {
             SlashCommandEntry::new(SlashCommand::Reasoning),
             SlashCommandEntry::new(SlashCommand::Providers),
             SlashCommandEntry::new(SlashCommand::NewSession),
+            SlashCommandEntry::new(SlashCommand::Fork),
         ]
     }
 
@@ -432,5 +436,29 @@ mod tests {
 
         let entry = state.selected_entry().expect("Should have a match");
         assert_eq!(entry.command, SlashCommand::Model);
+    }
+
+    #[test]
+    fn test_slash_menu_includes_fork_command() {
+        let mut state = SlashMenuState::new();
+        state.show();
+
+        assert!(state
+            .commands
+            .iter()
+            .any(|entry| entry.command == SlashCommand::Fork && entry.label == "/fork"));
+    }
+
+    #[test]
+    fn test_slash_menu_filters_fork_command() {
+        let mut state = SlashMenuState::new();
+        state.show();
+        state.insert_char('f');
+        state.insert_char('o');
+        state.insert_char('r');
+        state.insert_char('k');
+
+        let entry = state.selected_entry().expect("Should match /fork");
+        assert_eq!(entry.command, SlashCommand::Fork);
     }
 }

@@ -49,6 +49,7 @@ conduit debug-keys
 | `Tab` / `Shift+Tab`          | Switch to next/previous tab        |
 | `Alt+1-9`                    | Jump to specific tab               |
 | `Alt+Shift+F`†               | Fork current session               |
+| `/fork` (slash menu)         | Fork current session               |
 | `Enter`                      | Submit prompt                      |
 | `Shift+Enter` or `Alt+Enter` | Add newline in input               |
 | `Ctrl+C`                     | Interrupt agent                    |

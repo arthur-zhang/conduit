@@ -1856,40 +1856,12 @@ impl App {
                         let command = entry.command;
                         self.state.slash_menu_state.hide();
                         self.state.input_mode = InputMode::Normal;
-                        match command {
-                            SlashCommand::Model => {
-                                effects.extend(
-                                    Box::pin(self.execute_action(
-                                        Action::ShowModelSelector,
-                                        terminal,
-                                        guard,
-                                    ))
-                                    .await?,
-                                );
-                            }
-                            SlashCommand::Reasoning => {
-                                effects.extend(
-                                    Box::pin(self.execute_action(
-                                        Action::ShowReasoningSelector,
-                                        terminal,
-                                        guard,
-                                    ))
-                                    .await?,
-                                );
-                            }
-                            SlashCommand::Providers => {
-                                effects.extend(
-                                    Box::pin(self.execute_action(
-                                        Action::ShowProvidersSelector,
-                                        terminal,
-                                        guard,
-                                    ))
-                                    .await?,
-                                );
-                            }
-                            SlashCommand::NewSession => {
-                                self.start_new_session_in_place();
-                            }
+                        if let Some(action) = Self::slash_command_action(command) {
+                            effects.extend(
+                                Box::pin(self.execute_action(action, terminal, guard)).await?,
+                            );
+                        } else if matches!(command, SlashCommand::NewSession) {
+                            self.start_new_session_in_place();
                         }
                     }
                 } else if self.state.input_mode == InputMode::CommandPalette {
@@ -3039,6 +3011,16 @@ impl App {
             && !shell_mode
             && !has_inline_prompt
             && input_mode == InputMode::Normal
+    }
+
+    fn slash_command_action(command: SlashCommand) -> Option<Action> {
+        match command {
+            SlashCommand::Model => Some(Action::ShowModelSelector),
+            SlashCommand::Reasoning => Some(Action::ShowReasoningSelector),
+            SlashCommand::Providers => Some(Action::ShowProvidersSelector),
+            SlashCommand::Fork => Some(Action::ForkSession),
+            SlashCommand::NewSession => None,
+        }
     }
 
     async fn read_bounded_output<R>(mut reader: R, limit: usize) -> io::Result<(Vec<u8>, bool)>
@@ -10626,6 +10608,14 @@ mod tests {
         assert!(
             !result,
             "Slash should not trigger menu without an active session"
+        );
+    }
+
+    #[test]
+    fn test_slash_command_action_maps_fork_to_fork_session() {
+        assert_eq!(
+            App::slash_command_action(SlashCommand::Fork),
+            Some(Action::ForkSession)
         );
     }
 
