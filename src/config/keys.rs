@@ -96,6 +96,8 @@ pub enum KeyContext {
     Global,
     /// Chat input mode (Normal InputMode)
     Chat,
+    /// File viewer tab mode
+    FileViewer,
     /// Scrolling through chat history
     Scrolling,
     /// Sidebar navigation
@@ -131,6 +133,7 @@ impl KeyContext {
     pub fn all_contexts() -> &'static [KeyContext] {
         &[
             KeyContext::Chat,
+            KeyContext::FileViewer,
             KeyContext::Scrolling,
             KeyContext::Sidebar,
             KeyContext::Dialog,
@@ -176,6 +179,7 @@ impl KeyContext {
             InputMode::MissingTool => return KeyContext::Dialog,
             InputMode::SelectingTheme => return KeyContext::ThemePicker,
             InputMode::QueueEditing => return KeyContext::QueueEditing,
+            InputMode::FileViewer => return KeyContext::FileViewer,
             // Non-modal modes - continue to check view mode
             InputMode::Normal | InputMode::Scrolling | InputMode::SidebarNavigation => {}
         }
@@ -188,6 +192,7 @@ impl KeyContext {
         // Standard non-modal input modes
         match mode {
             InputMode::Normal => KeyContext::Chat,
+            InputMode::FileViewer => KeyContext::FileViewer,
             InputMode::Scrolling => KeyContext::Scrolling,
             InputMode::SidebarNavigation => KeyContext::Sidebar,
             // These are already handled above but satisfy exhaustiveness
@@ -694,6 +699,14 @@ mod tests {
 
         let context = KeyContext::from_input_mode(InputMode::SelectingTheme, ViewMode::Chat);
         assert_eq!(context, KeyContext::ThemePicker);
+    }
+
+    #[test]
+    fn test_file_viewer_maps_to_file_viewer_context() {
+        use crate::ui::events::{InputMode, ViewMode};
+
+        let context = KeyContext::from_input_mode(InputMode::FileViewer, ViewMode::Chat);
+        assert_eq!(context, KeyContext::FileViewer);
     }
 
     #[test]

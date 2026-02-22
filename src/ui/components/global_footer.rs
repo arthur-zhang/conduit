@@ -153,7 +153,8 @@ impl<'a> GlobalFooter<'a> {
             ("g/G", "top/bottom"),
             ("C-d/u", "page"),
             ("tab", "next tab"),
-            ("M-S-w", "close"),
+            ("q", "close"),
+            ("esc", "close"),
         ]
     }
 

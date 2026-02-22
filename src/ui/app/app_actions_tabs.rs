@@ -17,6 +17,7 @@ impl App {
                 );
                 self.state.input_mode = InputMode::Normal;
                 self.state.sidebar_state.set_focused(false);
+                self.sync_input_mode_for_active_tab();
                 effects.push(Effect::SaveSessionState);
             }
             Err(e) => {
@@ -39,6 +40,7 @@ impl App {
                     self.state.sidebar_state.visible = true;
                     self.state.input_mode = InputMode::SidebarNavigation;
                 } else {
+                    self.sync_input_mode_for_active_tab();
                     self.sync_sidebar_to_active_tab();
                     self.sync_footer_spinner();
                 }
@@ -52,6 +54,7 @@ impl App {
                         self.state.tab_manager.switch_to(0);
                         self.state.sidebar_state.set_focused(false);
                         self.state.input_mode = InputMode::Normal;
+                        self.sync_input_mode_for_active_tab();
                         self.sync_sidebar_to_active_tab();
                     }
                 } else if self.state.sidebar_state.visible {
@@ -64,11 +67,13 @@ impl App {
                         self.state.input_mode = InputMode::SidebarNavigation;
                     } else {
                         self.state.tab_manager.next_tab();
+                        self.sync_input_mode_for_active_tab();
                         self.sync_sidebar_to_active_tab();
                         self.sync_footer_spinner();
                     }
                 } else {
                     self.state.tab_manager.next_tab();
+                    self.sync_input_mode_for_active_tab();
                     self.sync_sidebar_to_active_tab();
                     self.sync_footer_spinner();
                 }
@@ -82,6 +87,7 @@ impl App {
                         self.state.tab_manager.switch_to(count - 1);
                         self.state.sidebar_state.set_focused(false);
                         self.state.input_mode = InputMode::Normal;
+                        self.sync_input_mode_for_active_tab();
                         self.sync_sidebar_to_active_tab();
                         self.sync_footer_spinner();
                     }
@@ -94,11 +100,13 @@ impl App {
                         self.state.input_mode = InputMode::SidebarNavigation;
                     } else {
                         self.state.tab_manager.prev_tab();
+                        self.sync_input_mode_for_active_tab();
                         self.sync_sidebar_to_active_tab();
                         self.sync_footer_spinner();
                     }
                 } else {
                     self.state.tab_manager.prev_tab();
+                    self.sync_input_mode_for_active_tab();
                     self.sync_sidebar_to_active_tab();
                     self.sync_footer_spinner();
                 }
@@ -106,6 +114,7 @@ impl App {
             Action::SwitchToTab(n) => {
                 if n > 0 {
                     self.state.tab_manager.switch_to((n - 1) as usize);
+                    self.sync_input_mode_for_active_tab();
                     self.sync_sidebar_to_active_tab();
                     self.sync_footer_spinner();
                 }

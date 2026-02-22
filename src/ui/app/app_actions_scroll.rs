@@ -132,6 +132,13 @@ impl App {
 
     /// Handle scroll actions for file viewer
     fn handle_file_viewer_scroll(&mut self, action: &Action) {
+        let visible_height = self
+            .state
+            .file_viewer_area
+            .map(|area| area.height as usize)
+            .unwrap_or(20)
+            .max(1);
+
         match action {
             Action::ScrollUp(n) => {
                 if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
@@ -140,17 +147,17 @@ impl App {
             }
             Action::ScrollDown(n) => {
                 if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
-                    file_session.scroll_down(*n as usize);
+                    file_session.scroll_down_clamped(*n as usize, visible_height);
                 }
             }
             Action::ScrollPageUp => {
                 if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
-                    file_session.page_up();
+                    file_session.page_up_exact(visible_height);
                 }
             }
             Action::ScrollPageDown => {
                 if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
-                    file_session.page_down();
+                    file_session.page_down_exact(visible_height);
                 }
             }
             Action::ScrollToTop => {
@@ -160,7 +167,7 @@ impl App {
             }
             Action::ScrollToBottom => {
                 if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
-                    file_session.scroll_to_bottom();
+                    file_session.scroll_to_bottom_exact(visible_height);
                 }
             }
             // User message navigation doesn't apply to file viewer

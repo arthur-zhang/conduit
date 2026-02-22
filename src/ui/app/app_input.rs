@@ -75,6 +75,7 @@ impl App {
         } else if self.state.add_repo_dialog_state.path.is_visible() {
             self.state.input_mode = InputMode::AddingRepository;
         }
+        self.sync_input_mode_for_active_tab();
 
         // Handle Ctrl+C with double-press detection (global)
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -453,8 +454,8 @@ impl App {
             return Ok(Vec::new());
         }
 
-        // Get the current context from input mode and view mode
-        let context = KeyContext::from_input_mode(self.state.input_mode, self.state.view_mode);
+        // Get the current context from input mode and active tab type
+        let context = self.key_context_for_active_tab();
 
         // Text input (typing characters) handled specially
         if self.should_handle_as_text_input(&key, context) {
@@ -499,6 +500,10 @@ impl App {
         let is_char = matches!(key.code, KeyCode::Char(_));
 
         if !is_char {
+            return false;
+        }
+
+        if matches!(context, KeyContext::FileViewer) {
             return false;
         }
 
@@ -553,6 +558,7 @@ impl App {
                     session.input_box.insert_char(c);
                 }
             }
+            InputMode::FileViewer => {}
             InputMode::Command => {
                 self.state.command_buffer.push(c);
             }
@@ -619,6 +625,7 @@ impl App {
                     session.input_box.handle_paste(sanitized);
                 }
             }
+            InputMode::FileViewer => {}
             InputMode::Command => {
                 let sanitized = pasted.replace('\n', " ");
                 self.state.command_buffer.push_str(&sanitized);
@@ -727,6 +734,9 @@ impl App {
                     self.state.provider_selector_state.select_previous();
                 } else if self.handle_tab_bar_wheel(x, y, true) {
                     return Ok(Vec::new());
+                } else if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
+                    file_session.scroll_up(1);
+                    self.record_scroll(1);
                 } else if self.state.view_mode == ViewMode::RawEvents {
                     if let Some(session) = self.state.tab_manager.active_session_mut() {
                         if session.raw_events_view.is_detail_visible() {
@@ -768,6 +778,9 @@ impl App {
                     self.state.provider_selector_state.select_next();
                 } else if self.handle_tab_bar_wheel(x, y, false) {
                     return Ok(Vec::new());
+                } else if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
+                    file_session.scroll_down(1);
+                    self.record_scroll(1);
                 } else if self.state.view_mode == ViewMode::RawEvents {
                     let list_height = self.raw_events_list_visible_height();
                     let detail_height = self.raw_events_detail_visible_height();
@@ -949,6 +962,7 @@ impl App {
                     format!("Opened: {}", path),
                     std::time::Duration::from_secs(2),
                 );
+                self.sync_input_mode_for_active_tab();
                 Some(vec![Effect::SaveSessionState])
             }
             Err(e) => {

@@ -10,31 +10,55 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
-use unicode_width::UnicodeWidthStr;
 
-use super::{render_minimal_scrollbar, text_muted, text_primary};
-use crate::ui::file_viewer::FileViewerSession;
+use super::source_highlighter::truncate_spans_with_ellipsis;
+use super::{render_minimal_scrollbar, text_muted};
+use crate::ui::file_viewer::{FileViewMode, FileViewerSession};
 
 /// Renders a file viewer with line numbers and scrolling
 pub struct FileViewerView<'a> {
-    session: &'a FileViewerSession,
+    session: &'a mut FileViewerSession,
 }
 
 impl<'a> FileViewerView<'a> {
-    pub fn new(session: &'a FileViewerSession) -> Self {
+    pub fn new(session: &'a mut FileViewerSession) -> Self {
         Self { session }
     }
 
-    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+    pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
         if area.height == 0 || area.width == 0 {
             return;
         }
 
         let visible_height = area.height as usize;
 
-        // Calculate width needed for line numbers
-        let line_num_width = if self.session.show_line_numbers {
-            // Calculate width needed for the largest line number
+        match self.session.active_view_mode() {
+            FileViewMode::Raw => self.render_raw(area, buf, visible_height),
+            FileViewMode::Rendered => self.render_rendered(area, buf, visible_height),
+        }
+
+        // Render scrollbar for active mode.
+        let total_lines = self.session.effective_total_lines();
+        if total_lines > 0 {
+            let scrollbar_area = Rect {
+                x: area.x + area.width.saturating_sub(1),
+                y: area.y,
+                width: 1,
+                height: area.height,
+            };
+            render_minimal_scrollbar(
+                scrollbar_area,
+                buf,
+                total_lines,
+                visible_height,
+                self.session.scroll_offset,
+            );
+        }
+    }
+
+    fn render_raw(&self, area: Rect, buf: &mut Buffer, visible_height: usize) {
+        // Calculate width needed for line numbers.
+        let line_num_width = if self.session.should_show_line_numbers() {
             let max_line = self.session.total_lines;
             let digits = if max_line == 0 {
                 1
@@ -46,14 +70,11 @@ impl<'a> FileViewerView<'a> {
             0
         };
 
-        // Reserve 1 column for scrollbar
+        // Reserve 1 column for scrollbar.
         let content_width = (area.width as usize).saturating_sub(line_num_width + 1);
-        let scrollbar_x = area.x + area.width - 1;
+        let lines = self.session.visible_highlighted_raw_lines(visible_height);
 
-        // Get visible lines
-        let lines = self.session.visible_lines(visible_height);
-
-        for (i, line_content) in lines.iter().enumerate() {
+        for (i, highlighted_line) in lines.iter().enumerate() {
             let y = area.y + i as u16;
             if y >= area.y + area.height {
                 break;
@@ -62,8 +83,7 @@ impl<'a> FileViewerView<'a> {
             let line_num = self.session.scroll_offset + i + 1;
             let mut spans = Vec::new();
 
-            // Line number
-            if self.session.show_line_numbers {
+            if self.session.should_show_line_numbers() {
                 let num_str = format!(
                     "{:>width$} │ ",
                     line_num,
@@ -72,56 +92,42 @@ impl<'a> FileViewerView<'a> {
                 spans.push(Span::styled(num_str, Style::default().fg(text_muted())));
             }
 
-            // Line content (truncated if necessary)
-            let display_content = if line_content.width() > content_width && content_width > 1 {
-                let mut width = 0;
-                let truncated: String = line_content
-                    .chars()
-                    .take_while(|c| {
-                        let char_width = unicode_width::UnicodeWidthChar::width(*c).unwrap_or(0);
-                        if width + char_width <= content_width.saturating_sub(1) {
-                            width += char_width;
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                    .collect();
-                format!("{}…", truncated)
-            } else {
-                line_content.clone()
-            };
-
-            spans.push(Span::styled(
-                display_content,
-                Style::default().fg(text_primary()),
-            ));
+            if content_width > 0 {
+                spans.extend(truncate_spans_with_ellipsis(
+                    &highlighted_line.spans,
+                    content_width,
+                ));
+            }
 
             let line = Line::from(spans);
             let line_area = Rect {
                 x: area.x,
                 y,
-                width: area.width.saturating_sub(1), // Leave room for scrollbar
+                width: area.width.saturating_sub(1),
                 height: 1,
             };
             Paragraph::new(line).render(line_area, buf);
         }
+    }
 
-        // Render scrollbar if there's content to scroll
-        if self.session.total_lines > 0 {
-            let scrollbar_area = Rect {
-                x: scrollbar_x,
-                y: area.y,
-                width: 1,
-                height: area.height,
+    fn render_rendered(&mut self, area: Rect, buf: &mut Buffer, visible_height: usize) {
+        let content_width = area.width.saturating_sub(1) as usize;
+        self.session.ensure_render_cache(content_width);
+
+        let lines = self.session.visible_rendered_lines(visible_height);
+        for (i, line) in lines.iter().enumerate() {
+            let y = area.y + i as u16;
+            if y >= area.y + area.height {
+                break;
+            }
+
+            let line_area = Rect {
+                x: area.x,
+                y,
+                width: area.width.saturating_sub(1),
+                height: 1,
             };
-            render_minimal_scrollbar(
-                scrollbar_area,
-                buf,
-                self.session.total_lines,
-                visible_height,
-                self.session.scroll_offset,
-            );
+            Paragraph::new(line.clone()).render(line_area, buf);
         }
     }
 }

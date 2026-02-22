@@ -238,6 +238,57 @@ pub fn default_keybindings() -> KeybindingConfig {
     bind(scrolling, "q", Action::Cancel);
     bind(scrolling, "i", Action::Cancel);
 
+    // ========== File Viewer ==========
+    let file_viewer = config.context.entry(KeyContext::FileViewer).or_default();
+
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::Up, KeyModifiers::NONE),
+        Action::ScrollUp(1),
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::Down, KeyModifiers::NONE),
+        Action::ScrollDown(1),
+    );
+    bind(file_viewer, "k", Action::ScrollUp(1));
+    bind(file_viewer, "j", Action::ScrollDown(1));
+    bind(file_viewer, "g", Action::ScrollToTop);
+    bind(file_viewer, "G", Action::ScrollToBottom);
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::Home, KeyModifiers::NONE),
+        Action::ScrollToTop,
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::End, KeyModifiers::NONE),
+        Action::ScrollToBottom,
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::PageUp, KeyModifiers::NONE),
+        Action::ScrollPageUp,
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::PageDown, KeyModifiers::NONE),
+        Action::ScrollPageDown,
+    );
+    bind(file_viewer, "C-u", Action::ScrollPageUp);
+    bind(file_viewer, "C-d", Action::ScrollPageDown);
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::Tab, KeyModifiers::NONE),
+        Action::NextTab,
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::BackTab, KeyModifiers::NONE),
+        Action::PrevTab,
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+        Action::PrevTab,
+    );
+    file_viewer.insert(
+        KeyCombo::new(KeyCode::Esc, KeyModifiers::NONE),
+        Action::CloseTab,
+    );
+    bind(file_viewer, "q", Action::CloseTab);
+
     // ========== Queue Editing Mode ==========
     let queue = config.context.entry(KeyContext::QueueEditing).or_default();
 
@@ -752,5 +803,56 @@ mod tests {
             "Alt+Shift+H should be bound to HandoffSession, got {:?}",
             action
         );
+    }
+
+    #[test]
+    fn test_file_viewer_tab_bound_to_next_tab() {
+        let config = default_keybindings();
+        let context = config
+            .context
+            .get(&KeyContext::FileViewer)
+            .expect("file viewer context missing");
+        let key_combo: KeyCombo = "<Tab>".parse().expect("Should parse Tab");
+
+        assert!(matches!(context.get(&key_combo), Some(Action::NextTab)));
+    }
+
+    #[test]
+    fn test_file_viewer_ctrl_d_bound_to_page_down() {
+        let config = default_keybindings();
+        let context = config
+            .context
+            .get(&KeyContext::FileViewer)
+            .expect("file viewer context missing");
+        let key_combo: KeyCombo = "C-d".parse().expect("Should parse C-d");
+
+        assert!(matches!(
+            context.get(&key_combo),
+            Some(Action::ScrollPageDown)
+        ));
+    }
+
+    #[test]
+    fn test_file_viewer_q_bound_to_close_tab() {
+        let config = default_keybindings();
+        let context = config
+            .context
+            .get(&KeyContext::FileViewer)
+            .expect("file viewer context missing");
+        let key_combo: KeyCombo = "q".parse().expect("Should parse q");
+
+        assert!(matches!(context.get(&key_combo), Some(Action::CloseTab)));
+    }
+
+    #[test]
+    fn test_file_viewer_esc_bound_to_close_tab() {
+        let config = default_keybindings();
+        let context = config
+            .context
+            .get(&KeyContext::FileViewer)
+            .expect("file viewer context missing");
+        let key_combo: KeyCombo = "<Esc>".parse().expect("Should parse Esc");
+
+        assert!(matches!(context.get(&key_combo), Some(Action::CloseTab)));
     }
 }

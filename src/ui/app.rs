@@ -4011,6 +4011,20 @@ impl App {
         }
     }
 
+    /// Keep the non-modal input mode aligned with the currently active tab type.
+    fn sync_input_mode_for_active_tab(&mut self) {
+        match self.state.input_mode {
+            InputMode::Normal | InputMode::Scrolling | InputMode::FileViewer => {
+                if self.state.tab_manager.active_is_file() {
+                    self.state.input_mode = InputMode::FileViewer;
+                } else if self.state.input_mode == InputMode::FileViewer {
+                    self.state.input_mode = InputMode::Normal;
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Sync footer spinner state to the active tab's processing state
     fn sync_footer_spinner(&mut self) {
         let active_session = self.state.tab_manager.active_session();
@@ -5038,6 +5052,7 @@ impl App {
         match tab_bar.hit_test(tab_bar_area, x) {
             TabBarHitTarget::Tab(index) => {
                 self.state.tab_manager.switch_to(index);
+                self.sync_input_mode_for_active_tab();
                 self.ensure_tab_bar_scroll(tab_bar_area.width, tabs_focused);
                 self.sync_sidebar_to_active_tab();
                 self.sync_footer_spinner();
@@ -5620,21 +5635,27 @@ impl App {
         // Parse the key notation
         let key_combo = parse_key_notation(&key_notation).ok()?;
 
-        // Determine context from current mode
-        // Keep precedence aligned with handle_footer_click(): sidebar > file-viewer > view_mode
-        let context = if self.state.input_mode == InputMode::SidebarNavigation {
-            KeyContext::from_input_mode(self.state.input_mode, self.state.view_mode)
-        } else if self.state.tab_manager.active_is_file() {
-            KeyContext::Scrolling
-        } else {
-            KeyContext::from_input_mode(self.state.input_mode, self.state.view_mode)
-        };
+        // Determine context from current mode and active tab type.
+        let context = self.key_context_for_active_tab();
 
         // Look up action in keybinding config
         self.config()
             .keybindings
             .get_action(&key_combo, context)
             .cloned()
+    }
+
+    fn key_context_for_active_tab(&self) -> KeyContext {
+        match self.state.input_mode {
+            InputMode::Normal | InputMode::Scrolling | InputMode::FileViewer => {
+                if self.state.tab_manager.active_is_file() {
+                    KeyContext::FileViewer
+                } else {
+                    KeyContext::from_input_mode(self.state.input_mode, self.state.view_mode)
+                }
+            }
+            _ => KeyContext::from_input_mode(self.state.input_mode, self.state.view_mode),
+        }
     }
 
     async fn handle_app_event(&mut self, event: AppEvent) -> anyhow::Result<Vec<Effect>> {
@@ -9491,6 +9512,7 @@ impl App {
                         // Store areas for mouse hit-testing
                         self.state.tab_bar_area = Some(chunks[0]);
                         self.state.chat_area = None;
+                        self.state.file_viewer_area = None;
                         self.state.raw_events_area = None;
                         self.state.input_area = None;
                         self.state.status_bar_area = None;
@@ -9776,6 +9798,7 @@ impl App {
                     // Set hidden areas to None when inline prompt is active to avoid hit-testing confusion
                     self.state.tab_bar_area = Some(tab_bar_chunk);
                     self.state.chat_area = Some(chat_chunk);
+                    self.state.file_viewer_area = None;
                     self.state.raw_events_area = None;
                     self.state.input_area = if has_inline_prompt {
                         None
@@ -9929,6 +9952,7 @@ impl App {
                     // Store layout areas for mouse hit-testing (no input/status in this mode)
                     self.state.tab_bar_area = Some(tab_bar_chunk);
                     self.state.chat_area = None;
+                    self.state.file_viewer_area = None;
                     self.state.raw_events_area = Some(raw_events_chunk);
                     self.state.input_area = None;
                     self.state.status_bar_area = None;
@@ -10143,6 +10167,7 @@ impl App {
         // Store areas for mouse hit-testing
         self.state.tab_bar_area = Some(tab_bar_chunk);
         self.state.chat_area = None;
+        self.state.file_viewer_area = Some(content_chunk);
         self.state.raw_events_area = None;
         self.state.input_area = command_chunk;
         self.state.status_bar_area = None;
@@ -10155,10 +10180,22 @@ impl App {
         tab_bar.render(tab_bar_chunk, f.buffer_mut());
 
         // Render file header and content
-        if let Some(file_session) = self.state.tab_manager.active_file_viewer() {
+        if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
+            let markdown_width = content_chunk.width.saturating_sub(1) as usize;
+            file_session.ensure_render_cache(markdown_width);
+
             // Render file header with path and line count
             let path_str = file_session.file_path.display().to_string();
-            let line_info = format!(" ({} lines)", file_session.total_lines);
+            let mode_label = format!(
+                "{} • {}",
+                file_session.file_kind_label(),
+                file_session.view_mode_label()
+            );
+            let line_info = format!(
+                " ({} lines • {})",
+                file_session.effective_total_lines(),
+                mode_label
+            );
 
             // Truncate path if it doesn't fit in the header width (UTF-8 safe, width-aware)
             let available_width = header_chunk.width.saturating_sub(2) as usize; // 1 leading space + 1 safety
@@ -10824,6 +10861,18 @@ mod tests {
         }
     }
 
+    fn create_test_file(contents: &str) -> PathBuf {
+        let path = init_test_data_dir().join(format!("file-viewer-{}.txt", Uuid::new_v4()));
+        std::fs::write(&path, contents).expect("failed to write test file");
+        path
+    }
+
+    fn create_test_markdown_file(contents: &str) -> PathBuf {
+        let path = init_test_data_dir().join(format!("file-viewer-{}.md", Uuid::new_v4()));
+        std::fs::write(&path, contents).expect("failed to write markdown test file");
+        path
+    }
+
     fn status_bar_model_click_position(app: &App, status_bar_area: Rect) -> (u16, u16) {
         let session = app
             .state
@@ -10874,6 +10923,129 @@ mod tests {
             Some("Warning: some session state could not be saved. Check logs.")
         );
         assert!(app.state.footer_message_expires_at.is_some());
+    }
+
+    #[test]
+    fn test_handle_open_file_sets_file_viewer_mode() {
+        let session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[session_id]);
+        let path = create_test_file("line-1\nline-2\n");
+        let mut effects = Vec::new();
+
+        app.handle_open_file(path.clone(), &mut effects);
+
+        assert!(app.state.tab_manager.active_is_file());
+        assert_eq!(app.state.input_mode, InputMode::FileViewer);
+        assert_eq!(
+            app.state
+                .tab_manager
+                .active_file_viewer()
+                .expect("file viewer missing")
+                .file_path,
+            path
+        );
+        assert!(matches!(effects.as_slice(), [Effect::SaveSessionState]));
+    }
+
+    #[test]
+    fn test_markdown_file_defaults_to_rendered_mode() {
+        let mut app = build_test_app_with_sessions(&[]);
+        let path = create_test_markdown_file(
+            "# Title\nThis markdown paragraph is long enough to wrap in a narrow viewport.\n",
+        );
+        app.state
+            .tab_manager
+            .open_file(path)
+            .expect("open markdown file");
+        app.sync_input_mode_for_active_tab();
+
+        let viewer = app
+            .state
+            .tab_manager
+            .active_file_viewer_mut()
+            .expect("file viewer missing");
+        assert_eq!(
+            viewer.active_view_mode(),
+            crate::ui::file_viewer::FileViewMode::Rendered
+        );
+
+        viewer.ensure_render_cache(20);
+        assert!(viewer.effective_total_lines() >= viewer.total_lines);
+    }
+
+    #[test]
+    fn test_sync_input_mode_for_active_tab_tracks_file_tab_transitions() {
+        let session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[session_id]);
+        let path = create_test_file("line-1\nline-2\nline-3\n");
+        app.state.tab_manager.open_file(path).expect("open file");
+
+        app.sync_input_mode_for_active_tab();
+        assert_eq!(app.state.input_mode, InputMode::FileViewer);
+
+        app.state.tab_manager.switch_to(0);
+        app.sync_input_mode_for_active_tab();
+        assert_eq!(app.state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_lookup_footer_action_uses_file_viewer_context() {
+        let session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[session_id]);
+        let path = create_test_file("line-1\nline-2\nline-3\n");
+        app.state.tab_manager.open_file(path).expect("open file");
+        app.sync_input_mode_for_active_tab();
+
+        assert_eq!(app.lookup_footer_action("tab"), Some(Action::NextTab));
+        assert_eq!(app.lookup_footer_action("j"), Some(Action::ScrollDown(1)));
+        assert_eq!(app.lookup_footer_action("q"), Some(Action::CloseTab));
+        assert_eq!(app.lookup_footer_action("esc"), Some(Action::CloseTab));
+    }
+
+    #[test]
+    fn test_flush_scroll_deltas_scrolls_file_viewer() {
+        let mut app = build_test_app_with_sessions(&[]);
+        let content = (0..50)
+            .map(|i| format!("line-{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let path = create_test_file(&content);
+        app.state.tab_manager.open_file(path).expect("open file");
+        app.sync_input_mode_for_active_tab();
+
+        let mut pending_up = 0usize;
+        let mut pending_down = 4usize;
+        app.flush_scroll_deltas(&mut pending_up, &mut pending_down);
+
+        assert_eq!(pending_up, 0);
+        assert_eq!(pending_down, 0);
+        assert_eq!(
+            app.state
+                .tab_manager
+                .active_file_viewer()
+                .expect("file viewer missing")
+                .scroll_offset,
+            4
+        );
+    }
+
+    #[test]
+    fn test_should_handle_as_text_input_false_for_file_viewer_context() {
+        let mut app = build_test_app_with_sessions(&[]);
+        let path = create_test_file("line-1\nline-2\n");
+        app.state.tab_manager.open_file(path).expect("open file");
+        app.sync_input_mode_for_active_tab();
+
+        let key = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::Char('j'),
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        let context = app.key_context_for_active_tab();
+
+        assert_eq!(context, KeyContext::FileViewer);
+        assert!(!app.should_handle_as_text_input(&key, context));
     }
 
     #[test]

@@ -32,6 +32,7 @@ mod session_header;
 mod session_import_picker;
 mod sidebar;
 mod slash_menu;
+pub(crate) mod source_highlighter;
 mod spinner;
 mod status_bar;
 mod tab_bar;

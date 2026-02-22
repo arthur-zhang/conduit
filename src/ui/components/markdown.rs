@@ -3,6 +3,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
 };
+use unicode_width::UnicodeWidthChar;
 
 use super::theme::{markdown_code_bg, markdown_inline_code_bg};
 
@@ -268,6 +269,16 @@ impl MarkdownRenderer {
         Text::from(lines)
     }
 
+    /// Render markdown and wrap output to the requested display width.
+    pub fn render_wrapped(&self, markdown: &str, width: usize) -> Vec<Line<'static>> {
+        if width == 0 {
+            return Vec::new();
+        }
+
+        let text = self.render(markdown);
+        Self::wrap_lines(text.lines, width)
+    }
+
     fn heading_style(&self, level: HeadingLevel) -> Style {
         match level {
             HeadingLevel::H1 => Style::default()
@@ -414,6 +425,68 @@ impl MarkdownRenderer {
             }
         }
     }
+
+    fn wrap_lines(lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+        let mut wrapped = Vec::new();
+        for line in lines {
+            wrapped.extend(Self::wrap_line(&line, width));
+        }
+        wrapped
+    }
+
+    fn wrap_line(line: &Line<'static>, width: usize) -> Vec<Line<'static>> {
+        if width == 0 {
+            return Vec::new();
+        }
+
+        if line.spans.is_empty() {
+            return vec![Line::from("")];
+        }
+
+        let mut wrapped = Vec::new();
+        let mut current_spans: Vec<Span<'static>> = Vec::new();
+        let mut current_width = 0usize;
+        let mut saw_any_char = false;
+
+        for span in &line.spans {
+            let style = span.style;
+            for ch in span.content.chars() {
+                saw_any_char = true;
+                let char_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+
+                if current_width > 0 && current_width + char_width > width {
+                    wrapped.push(Line::from(std::mem::take(&mut current_spans)));
+                    current_width = 0;
+                }
+
+                Self::push_styled_char(&mut current_spans, ch, style);
+                current_width += char_width;
+            }
+        }
+
+        if !saw_any_char {
+            wrapped.push(Line::from(""));
+        } else if !current_spans.is_empty() {
+            wrapped.push(Line::from(current_spans));
+        }
+
+        if wrapped.is_empty() {
+            wrapped.push(Line::from(""));
+        }
+
+        wrapped
+    }
+
+    fn push_styled_char(spans: &mut Vec<Span<'static>>, ch: char, style: Style) {
+        if let Some(last) = spans.last_mut() {
+            if last.style == style {
+                last.content.to_mut().push(ch);
+                return;
+            }
+        }
+
+        spans.push(Span::styled(ch.to_string(), style));
+    }
 }
 
 impl Default for MarkdownRenderer {
@@ -451,5 +524,28 @@ fn main() {
         let renderer = MarkdownRenderer::new();
         let text = renderer.render(md);
         assert!(!text.lines.is_empty());
+    }
+
+    #[test]
+    fn test_render_wrapped_splits_long_line() {
+        let md = "This is a long markdown paragraph that should wrap.";
+        let renderer = MarkdownRenderer::new();
+        let wrapped = renderer.render_wrapped(md, 12);
+
+        assert!(wrapped.len() > 1);
+    }
+
+    #[test]
+    fn test_render_wrapped_preserves_inline_code_style() {
+        let md = "Use `cargo check --all` in this project.";
+        let renderer = MarkdownRenderer::new();
+        let wrapped = renderer.render_wrapped(md, 10);
+
+        let has_inline_code_bg = wrapped.iter().any(|line| {
+            line.spans
+                .iter()
+                .any(|span| span.style.bg == Some(markdown_inline_code_bg()))
+        });
+        assert!(has_inline_code_bg);
     }
 }

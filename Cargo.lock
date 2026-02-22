@@ -791,6 +791,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "syntect",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

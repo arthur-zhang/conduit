@@ -185,6 +185,7 @@ pub struct AppState {
     pub tab_bar_scroll: usize,
     pub tab_bar_last_active: Option<usize>,
     pub chat_area: Option<Rect>,
+    pub file_viewer_area: Option<Rect>,
     pub input_area: Option<Rect>,
     pub status_bar_area: Option<Rect>,
     pub footer_area: Option<Rect>,
@@ -301,6 +302,7 @@ impl std::fmt::Debug for PendingHandoffRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollDragTarget {
     Chat,
+    FileViewer,
     Input,
     HelpDialog,
     ProjectPicker,
@@ -361,6 +363,7 @@ impl AppState {
             tab_bar_scroll: 0,
             tab_bar_last_active: None,
             chat_area: None,
+            file_viewer_area: None,
             input_area: None,
             status_bar_area: None,
             footer_area: None,

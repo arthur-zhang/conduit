@@ -130,6 +130,21 @@ impl App {
             for _ in 0..*pending_down {
                 self.state.provider_selector_state.select_next();
             }
+        } else if self.state.tab_manager.active_is_file() {
+            let visible_height = self
+                .state
+                .file_viewer_area
+                .map(|area| area.height as usize)
+                .unwrap_or(20)
+                .max(1);
+            if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
+                if *pending_up > 0 {
+                    file_session.scroll_up(*pending_up);
+                }
+                if *pending_down > 0 {
+                    file_session.scroll_down_clamped(*pending_down, visible_height);
+                }
+            }
         } else if self.state.view_mode == ViewMode::RawEvents {
             let list_height = self.raw_events_list_visible_height();
             let detail_height = self.raw_events_detail_visible_height();
@@ -202,6 +217,8 @@ impl App {
         } else if self.state.view_mode == ViewMode::RawEvents {
             targets.push(ScrollDragTarget::RawEventsDetail);
             targets.push(ScrollDragTarget::RawEventsList);
+        } else if self.state.tab_manager.active_is_file() {
+            targets.push(ScrollDragTarget::FileViewer);
         } else {
             if self.state.input_mode != InputMode::Command {
                 targets.push(ScrollDragTarget::Input);
@@ -243,6 +260,11 @@ impl App {
                     session
                         .input_box
                         .set_scroll_offset(new_offset, metrics.total, metrics.visible);
+                }
+            }
+            ScrollDragTarget::FileViewer => {
+                if let Some(file_session) = self.state.tab_manager.active_file_viewer_mut() {
+                    file_session.set_scroll_offset(new_offset, metrics.visible);
                 }
             }
             ScrollDragTarget::HelpDialog => {
@@ -310,6 +332,28 @@ impl App {
                 let area = self.state.input_area?;
                 let session = self.state.tab_manager.active_session_mut()?;
                 session.input_box.scrollbar_metrics(area)
+            }
+            ScrollDragTarget::FileViewer => {
+                let area = self.state.file_viewer_area?;
+                if area.width == 0 || area.height == 0 {
+                    return None;
+                }
+
+                let visible = area.height as usize;
+                let session = self.state.tab_manager.active_file_viewer_mut()?;
+                let markdown_width = area.width.saturating_sub(1) as usize;
+                session.ensure_render_cache(markdown_width);
+
+                Some(ScrollbarMetrics {
+                    area: Rect {
+                        x: area.x + area.width.saturating_sub(1),
+                        y: area.y,
+                        width: 1,
+                        height: area.height,
+                    },
+                    total: session.effective_total_lines(),
+                    visible,
+                })
             }
             ScrollDragTarget::RawEventsList => {
                 let area = self.state.raw_events_area?;

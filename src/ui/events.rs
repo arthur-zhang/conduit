@@ -263,6 +263,8 @@ pub enum InputMode {
     /// Normal mode - input focused
     #[default]
     Normal,
+    /// File viewer tab is active
+    FileViewer,
     /// Selecting agent for new tab
     SelectingAgent,
     /// Scrolling through chat history
