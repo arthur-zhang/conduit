@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS session_tabs (
     input_history TEXT NOT NULL DEFAULT '[]',
     fork_seed_id TEXT,
     title TEXT,
+    title_generated INTEGER NOT NULL DEFAULT 0,
+    model_invalid INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
 );
 
