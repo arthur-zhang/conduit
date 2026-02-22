@@ -13,7 +13,8 @@ use super::{
     render_minimal_scrollbar,
     theme::{
         accent_error, accent_primary, accent_success, bg_base, bg_highlight, diff_add, diff_remove,
-        markdown_code_bg, theme_revision, tool_block_bg, tool_command, tool_comment, tool_output,
+        markdown_code_bg, text_muted, theme_revision, tool_block_bg, tool_command, tool_comment,
+        tool_output,
     },
     ChatMessage, MarkdownRenderer, MessageRole, ScrollbarMetrics, TurnSummary,
 };
@@ -476,6 +477,8 @@ pub struct ChatView {
     last_extra_lines: Vec<Line<'static>>,
     /// Starting line index for extra lines (cached_len + streaming_len)
     last_extra_lines_start: usize,
+    /// Label for the agent (e.g. "Claude", "Codex") shown above assistant messages
+    agent_label: String,
 }
 
 /// Information about a hovered file path for rendering
@@ -513,18 +516,34 @@ impl ChatView {
             hovered_file_path: None,
             last_extra_lines: Vec::new(),
             last_extra_lines_start: 0,
+            agent_label: "Claude".to_string(),
+        }
+    }
+
+    /// Set the agent label displayed above assistant messages
+    pub fn set_agent_label(&mut self, label: String) {
+        if self.agent_label != label {
+            self.agent_label = label;
+            // Invalidate caches since agent label affects rendered output
+            self.line_cache = LineCache::default();
+            self.flat_cache.clear();
+            self.flat_cache_width = None;
+            self.flat_cache_dirty = true;
+            self.streaming_cache = None;
+            self.streaming_joiner_before = None;
+            self.cache_width = None;
         }
     }
 
     /// Calculate content area with padding for left margin and optional scrollbar.
     fn content_area(area: Rect, show_scrollbar: bool) -> Option<Rect> {
         let width = if show_scrollbar {
-            area.width.saturating_sub(4) // 2 left margin + 1 scrollbar + 1 gap
+            area.width.saturating_sub(6) // 4 left margin + 1 scrollbar + 1 gap
         } else {
-            area.width.saturating_sub(2) // 2 left margin
+            area.width.saturating_sub(4) // 4 left margin
         };
         let content = Rect {
-            x: area.x.saturating_add(2),
+            x: area.x.saturating_add(4),
             y: area.y,
             width,
             height: area.height,
@@ -1534,6 +1553,14 @@ impl ChatView {
         lines.push(builder.empty_line());
         joiner_before.push(None);
 
+        // Role label
+        let label_spans = vec![Span::styled(
+            "You".to_string(),
+            Style::default().fg(text_muted()).bg(tool_block_bg()),
+        )];
+        lines.push(builder.line(label_spans));
+        joiner_before.push(None);
+
         for line in msg.content.lines() {
             let content_spans = vec![Span::styled(line.to_string(), text_style)];
             let (wrapped, wrapped_joiners) =
@@ -1561,6 +1588,17 @@ impl ChatView {
         if msg.content.is_empty() {
             return;
         }
+
+        // Vertical breathing room
+        lines.push(Line::from(""));
+        joiner_before.push(None);
+
+        // Agent role label
+        lines.push(Line::from(Span::styled(
+            format!("  {}", self.agent_label),
+            Style::default().fg(text_muted()),
+        )));
+        joiner_before.push(None);
 
         // Parse markdown with custom renderer
         let renderer = MarkdownRenderer::new();

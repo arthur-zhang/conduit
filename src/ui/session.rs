@@ -169,6 +169,9 @@ impl AgentSession {
             pending_tool_permissions: HashMap::new(),
             pending_tool_permission_responses: HashMap::new(),
         };
+        session
+            .chat_view
+            .set_agent_label(agent_type.short_name().to_string());
         session.update_status();
         session
     }
@@ -256,6 +259,8 @@ impl AgentSession {
         }
         if agent_changed {
             self.reasoning_effort = None;
+            self.chat_view
+                .set_agent_label(agent_type.short_name().to_string());
         }
         self.last_mode_prompt = None;
 

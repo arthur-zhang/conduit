@@ -150,6 +150,16 @@ impl AgentType {
         }
     }
 
+    /// Short name for role labels in the chat view
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            AgentType::Claude => "Claude",
+            AgentType::Codex => "Codex",
+            AgentType::Gemini => "Gemini",
+            AgentType::Opencode => "OpenCode",
+        }
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             AgentType::Claude => "Claude Code",

@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::{bg_highlight, input_bg, render_minimal_scrollbar, text_primary, ScrollbarMetrics};
+use super::{
+    bg_highlight, input_bg, render_minimal_scrollbar, text_faint, text_primary, ScrollbarMetrics,
+};
 use crate::ui::clipboard_paste::normalize_pasted_path;
 
 const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
@@ -1135,6 +1137,23 @@ impl InputBox {
         };
 
         paragraph.render(content_area, buf);
+
+        // Placeholder text when input is empty
+        if self.input.is_empty() {
+            let placeholder = "Type a message...";
+            let placeholder_style = Style::default().fg(text_faint()).bg(input_bg());
+            let ph_width = (placeholder.len() as u16).min(content_width);
+            if ph_width > 0 {
+                let placeholder_area = Rect {
+                    x: area.x + 2, // Match prefix_width indentation
+                    y: area.y + padding_top,
+                    width: ph_width,
+                    height: 1,
+                };
+                let ph_line = Line::from(Span::styled(placeholder, placeholder_style));
+                Paragraph::new(ph_line).render(placeholder_area, buf);
+            }
+        }
 
         // Render scrollbar
         render_minimal_scrollbar(
