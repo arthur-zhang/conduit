@@ -664,7 +664,9 @@ impl ModelSelector {
 
                 let icon = ModelRegistry::agent_icon(model.agent_type);
                 let mut spans = vec![
-                    Span::styled(format!("  {} ", icon), Style::default().fg(text_primary())),
+                    Span::styled("  ", Style::default().fg(text_primary())),
+                    Span::styled(icon, Style::default().fg(text_primary())),
+                    Span::styled(" ", Style::default().fg(text_primary())),
                     Span::styled(
                         &model.display_name,
                         if is_selected {

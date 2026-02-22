@@ -224,37 +224,7 @@ struct SelectionPoint {
     column: u16,
 }
 
-/// Truncate a string to fit within a maximum display width, adding "..." if truncated.
-/// Uses unicode display width to handle multi-byte and wide characters correctly.
-fn truncate_to_width(s: &str, max_width: usize) -> String {
-    let ellipsis = "...";
-    let ellipsis_width = UnicodeWidthStr::width(ellipsis);
-
-    if max_width <= ellipsis_width {
-        return s.chars().take(max_width).collect();
-    }
-
-    let current_width = UnicodeWidthStr::width(s);
-    if current_width <= max_width {
-        return s.to_string();
-    }
-
-    let target_width = max_width - ellipsis_width;
-    let mut width = 0;
-    let mut result = String::new();
-
-    for c in s.chars() {
-        let char_width = UnicodeWidthChar::width(c).unwrap_or(0);
-        if width + char_width > target_width {
-            break;
-        }
-        result.push(c);
-        width += char_width;
-    }
-
-    result.push_str(ellipsis);
-    result
-}
+use super::truncate_to_width;
 
 /// Truncate a string to fit within a maximum display width (no ellipsis).
 /// Uses unicode display width to handle multi-byte and wide characters correctly.

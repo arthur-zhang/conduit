@@ -755,7 +755,7 @@ impl Config {
     }
 
     /// Create the default config file from the bundled example
-    fn create_default_config(path: &PathBuf) {
+    fn create_default_config(path: &Path) {
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             if !parent.exists() {
@@ -798,7 +798,7 @@ impl Config {
     pub fn effective_enabled_providers(&self, tools: &ToolAvailability) -> Vec<AgentType> {
         let all = AgentType::preferred_order();
 
-        let configured = self.enabled_providers.clone();
+        let configured = &self.enabled_providers;
         all.into_iter()
             .filter(|provider| tools.is_available(Self::tool_for_provider(*provider)))
             .filter(|provider| {

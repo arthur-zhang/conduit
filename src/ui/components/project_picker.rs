@@ -395,6 +395,8 @@ impl ProjectPicker {
 
             // Render visible items
             let visible_count = list_area.height as usize;
+            let home = dirs::home_dir().unwrap_or_default();
+            let home_str = home.to_string_lossy();
             for (i, &project_idx) in state
                 .list
                 .filtered
@@ -416,13 +418,10 @@ impl ProjectPicker {
                 let name = &project.name;
 
                 // Calculate path display (shortened)
-                let path_str = project.path.to_string_lossy().replace(
-                    dirs::home_dir()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .as_ref(),
-                    "~",
-                );
+                let path_str = project
+                    .path
+                    .to_string_lossy()
+                    .replace(home_str.as_ref(), "~");
 
                 let available_width = list_area.width as usize;
                 let name_width = 20.min(available_width / 2);

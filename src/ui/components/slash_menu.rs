@@ -230,8 +230,7 @@ impl SlashMenu {
         let input = state.list.search.value();
 
         if input.is_empty() {
-            let placeholder = format!("{prompt} Type a command...");
-            Paragraph::new(placeholder)
+            Paragraph::new("/ Type a command...")
                 .style(Style::default().fg(text_muted()))
                 .render(area, buf);
         } else {
@@ -377,38 +376,7 @@ impl SlashMenu {
     }
 }
 
-fn truncate_to_width(s: &str, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
-    }
-
-    let current_width = UnicodeWidthStr::width(s);
-    if current_width <= max_width {
-        return s.to_string();
-    }
-
-    let ellipsis = "...";
-    let ellipsis_width = UnicodeWidthStr::width(ellipsis);
-    if max_width <= ellipsis_width {
-        return ellipsis.chars().take(max_width).collect();
-    }
-
-    let target_width = max_width - ellipsis_width;
-    let mut result = String::new();
-    let mut width = 0;
-
-    for ch in s.chars() {
-        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(1);
-        if width + ch_width > target_width {
-            break;
-        }
-        result.push(ch);
-        width += ch_width;
-    }
-
-    result.push_str(ellipsis);
-    result
-}
+use super::truncate_to_width;
 
 impl Default for SlashMenu {
     fn default() -> Self {

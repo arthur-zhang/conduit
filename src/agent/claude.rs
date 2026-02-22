@@ -207,7 +207,7 @@ impl ClaudeCodeRunner {
                 })]
             }
             ClaudeRawEvent::ToolResult(result) => {
-                let tool_id = result.tool_use_id.clone().unwrap_or_default();
+                let tool_id = result.tool_use_id.unwrap_or_default();
                 let is_error = result.is_error.unwrap_or(false);
                 tracing::debug!(
                     "ToolResult received: tool_id={}, is_error={}, content_len={}",
@@ -230,9 +230,8 @@ impl ClaudeCodeRunner {
                 if res.is_error.unwrap_or(false) {
                     let detail = res
                         .result
-                        .clone()
-                        .or(res.output.clone())
-                        .or(res.error.clone())
+                        .or(res.output)
+                        .or(res.error)
                         .unwrap_or_else(|| "Unknown error".to_string());
                     tracing::warn!(error = %detail, "Claude result error");
                     return vec![

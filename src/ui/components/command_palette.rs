@@ -156,11 +156,7 @@ impl CommandPaletteState {
             .collect();
 
         // Sort alphabetically by description
-        entries.sort_by(|a, b| {
-            a.description
-                .to_lowercase()
-                .cmp(&b.description.to_lowercase())
-        });
+        entries.sort_by_cached_key(|e| e.description.to_lowercase());
 
         entries
     }
@@ -216,38 +212,7 @@ impl CommandPaletteState {
     }
 }
 
-fn truncate_to_width(s: &str, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
-    }
-
-    let current_width = UnicodeWidthStr::width(s);
-    if current_width <= max_width {
-        return s.to_string();
-    }
-
-    let ellipsis = "...";
-    let ellipsis_width = UnicodeWidthStr::width(ellipsis);
-    if max_width <= ellipsis_width {
-        return ellipsis.chars().take(max_width).collect();
-    }
-
-    let target_width = max_width - ellipsis_width;
-    let mut result = String::new();
-    let mut width = 0;
-
-    for ch in s.chars() {
-        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(1);
-        if width + ch_width > target_width {
-            break;
-        }
-        result.push(ch);
-        width += ch_width;
-    }
-
-    result.push_str(ellipsis);
-    result
-}
+use super::truncate_to_width;
 
 impl Default for CommandPaletteState {
     fn default() -> Self {
@@ -306,8 +271,8 @@ impl CommandPalette {
 
         if input.is_empty() {
             // Show placeholder
-            let placeholder = format!("{}Type to search commands...", prompt);
-            let para = Paragraph::new(placeholder).style(Style::default().fg(text_muted()));
+            let para = Paragraph::new("> Type to search commands...")
+                .style(Style::default().fg(text_muted()));
             para.render(area, buf);
         } else {
             // Show prompt and input

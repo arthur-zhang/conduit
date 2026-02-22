@@ -53,7 +53,7 @@ impl From<SessionTab> for SessionResponse {
             id: session.id,
             tab_index: session.tab_index,
             workspace_id: session.workspace_id,
-            agent_type: format!("{:?}", session.agent_type).to_lowercase(),
+            agent_type: session.agent_type.as_str().to_string(),
             agent_mode: session.agent_mode,
             agent_session_id: session.agent_session_id,
             model: session.model,
@@ -196,7 +196,7 @@ pub async fn update_session(
         &core,
         id,
         UpdateSessionParams {
-            model: req.model.clone(),
+            model: req.model,
             agent_type,
             agent_mode,
         },
@@ -587,7 +587,7 @@ pub async fn fork_session(
 
     let fork_seed = ForkSeed::new(
         session.agent_type,
-        session.agent_session_id.clone(),
+        session.agent_session_id,
         Some(workspace_id),
         seed_hash,
         None,

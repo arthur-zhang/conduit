@@ -16,7 +16,7 @@ impl App {
                     if self.is_blocking_confirmation_loading_dialog() {
                         return Ok(());
                     }
-                    if let Some(context) = self.state.confirmation_dialog_state.context.clone() {
+                    if let Some(context) = self.state.confirmation_dialog_state.context.take() {
                         match context {
                             ConfirmationContext::SelectWorkspaceMode { repo_id } => {
                                 match self.apply_repo_workspace_mode(
@@ -104,7 +104,7 @@ impl App {
                     if self.is_blocking_confirmation_loading_dialog() {
                         return Ok(());
                     }
-                    if let Some(context) = self.state.confirmation_dialog_state.context.clone() {
+                    if let Some(context) = self.state.confirmation_dialog_state.context.take() {
                         match context {
                             ConfirmationContext::SelectWorkspaceMode { repo_id } => {
                                 match self.apply_repo_workspace_mode(

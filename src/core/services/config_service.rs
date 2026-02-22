@@ -85,10 +85,10 @@ impl ConfigService {
             ));
         }
 
-        core.config_mut().set_enabled_providers(providers.clone());
         save_enabled_providers(&providers).map_err(|err| {
             ServiceError::Internal(format!("Failed to save enabled providers: {err}"))
         })?;
+        core.config_mut().set_enabled_providers(providers);
         Ok(())
     }
 }

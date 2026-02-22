@@ -369,7 +369,8 @@ impl AgentSession {
     /// Handle context compaction event
     pub fn handle_compaction(&mut self, event: ContextCompactionEvent) {
         let tokens_freed = event.tokens_before - event.tokens_after;
-        self.context_state.record_compaction(event.clone());
+        let reason = event.reason.clone();
+        self.context_state.record_compaction(event);
 
         // Create notification for user
         self.pending_context_warning = Some(ContextWarning {
@@ -377,7 +378,7 @@ impl AgentSession {
             message: format!(
                 "Context compacted: {} tokens freed ({})",
                 ContextWindowState::format_tokens(tokens_freed),
-                event.reason
+                reason
             ),
         });
 

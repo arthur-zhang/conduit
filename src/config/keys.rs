@@ -370,7 +370,9 @@ fn parse_special_key(s: &str) -> Result<KeyCombo, KeyParseError> {
 /// Returns the KeyCode and whether SHIFT should be added (for uppercase chars)
 fn parse_key_code(s: &str) -> Result<(KeyCode, bool), KeyParseError> {
     if s.len() == 1 {
-        let c = s.chars().next().unwrap();
+        let Some(c) = s.chars().next() else {
+            return Err(KeyParseError::InvalidSpecialKey(s.to_string()));
+        };
         let needs_shift = c.is_ascii_uppercase();
         Ok((KeyCode::Char(c.to_ascii_lowercase()), needs_shift))
     } else if s.starts_with('<') && s.ends_with('>') {

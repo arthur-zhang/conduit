@@ -20,14 +20,24 @@ impl SessionTabStore {
         Self { conn }
     }
 
+    /// Lock the connection mutex, converting a poisoned-lock panic into a SQLite error.
+    fn lock_conn(&self) -> SqliteResult<std::sync::MutexGuard<'_, Connection>> {
+        self.conn.lock().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("Mutex poisoned".to_string()),
+            )
+        })
+    }
+
     /// Insert a new session tab
     pub fn create(&self, tab: &SessionTab) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         Self::insert_with_conn(&conn, tab)
     }
 
     pub fn create_with_next_index(&self, mut tab: SessionTab) -> SqliteResult<SessionTab> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let next_index = Self::next_tab_index_with_conn(&conn)?;
         tab.tab_index = next_index;
         Self::insert_with_conn(&conn, &tab)?;
@@ -36,7 +46,7 @@ impl SessionTabStore {
 
     /// Insert or update a session tab by ID.
     pub fn upsert(&self, tab: &SessionTab) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let queued_messages = serialize_queued_messages(&tab.queued_messages);
         let input_history = serialize_input_history(&tab.input_history);
         conn.execute(
@@ -139,7 +149,7 @@ impl SessionTabStore {
 
     /// Get all session tabs ordered by tab_index
     pub fn get_all(&self) -> SqliteResult<Vec<SessionTab>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         // Hide sessions that belong to archived workspaces. (Archived workspaces should have their
         // sessions closed, but older DBs may still contain "open" sessions pointing at archived
         // workspaces.)
@@ -165,7 +175,7 @@ impl SessionTabStore {
 
     /// Get a session tab by ID
     pub fn get_by_id(&self, id: Uuid) -> SqliteResult<Option<SessionTab>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, tab_index, is_open, workspace_id, agent_type, agent_mode, agent_session_id, model, model_invalid, pr_number, created_at, pending_user_message, queued_messages, input_history, fork_seed_id, title, title_generated
              FROM session_tabs WHERE id = ?1",
@@ -181,7 +191,7 @@ impl SessionTabStore {
 
     /// Update a session tab
     pub fn update(&self, tab: &SessionTab) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let queued_messages = serialize_queued_messages(&tab.queued_messages);
         let input_history = serialize_input_history(&tab.input_history);
         conn.execute(
@@ -211,7 +221,7 @@ impl SessionTabStore {
 
     /// Delete a session tab
     pub fn delete(&self, id: Uuid) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "DELETE FROM session_tabs WHERE id = ?1",
             params![id.to_string()],
@@ -221,14 +231,14 @@ impl SessionTabStore {
 
     /// Clear all session tabs
     pub fn clear_all(&self) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute("DELETE FROM session_tabs", [])?;
         Ok(())
     }
 
     /// Get count of session tabs
     pub fn count(&self) -> SqliteResult<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let count: i64 =
             conn.query_row("SELECT COUNT(*) FROM session_tabs", [], |row| row.get(0))?;
         Ok(count as usize)
@@ -236,7 +246,7 @@ impl SessionTabStore {
 
     /// Get a session tab by workspace_id
     pub fn get_by_workspace_id(&self, workspace_id: Uuid) -> SqliteResult<Option<SessionTab>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         Self::get_by_workspace_id_with_conn(&conn, workspace_id)
     }
 
@@ -258,7 +268,7 @@ impl SessionTabStore {
     }
 
     pub fn get_open_by_workspace_id(&self, workspace_id: Uuid) -> SqliteResult<Option<SessionTab>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         Self::get_open_by_workspace_id_with_conn(&conn, workspace_id)
     }
 
@@ -281,7 +291,7 @@ impl SessionTabStore {
 
     /// Set session tab open/closed state.
     pub fn set_open(&self, id: Uuid, is_open: bool) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE session_tabs SET is_open = ?2 WHERE id = ?1",
             params![id.to_string(), if is_open { 1 } else { 0 }],
@@ -291,7 +301,7 @@ impl SessionTabStore {
 
     /// Set open/closed state for all sessions under a workspace.
     pub fn set_open_by_workspace(&self, workspace_id: Uuid, is_open: bool) -> SqliteResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE session_tabs SET is_open = ?2 WHERE workspace_id = ?1",
             params![workspace_id.to_string(), if is_open { 1 } else { 0 }],
@@ -301,7 +311,7 @@ impl SessionTabStore {
 
     /// Allocate the next tab index value.
     pub fn next_tab_index(&self) -> SqliteResult<i32> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         Self::next_tab_index_with_conn(&conn)
     }
 
@@ -327,7 +337,7 @@ impl SessionTabStore {
     where
         F: FnOnce(&Connection) -> SqliteResult<T>,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute_batch("BEGIN IMMEDIATE")?;
         match f(&conn) {
             Ok(value) => {
@@ -360,7 +370,13 @@ impl SessionTabStore {
         let model_invalid: i64 = row.get("model_invalid")?;
 
         Ok(SessionTab {
-            id: Uuid::parse_str(&id_str).unwrap_or_else(|_| Uuid::new_v4()),
+            id: Uuid::parse_str(&id_str).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?,
             tab_index: row.get("tab_index")?,
             is_open: is_open != 0,
             workspace_id: workspace_id_str.and_then(|s| Uuid::parse_str(&s).ok()),
@@ -372,7 +388,13 @@ impl SessionTabStore {
             pr_number: row.get("pr_number")?,
             created_at: DateTime::parse_from_rfc3339(&created_at_str)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
+                .map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        10,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?,
             pending_user_message: row.get("pending_user_message")?,
             queued_messages,
             input_history,

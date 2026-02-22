@@ -161,32 +161,30 @@ impl CodexCliRunner {
 
     fn approval_policy() -> AskForApproval {
         match std::env::var("CODEX_APPROVAL_POLICY")
-            .unwrap_or_else(|_| "never".to_string())
+            .unwrap_or_default()
             .to_lowercase()
             .as_str()
         {
             "untrusted" => AskForApproval::UnlessTrusted,
             "on-failure" => AskForApproval::OnFailure,
             "on-request" => AskForApproval::OnRequest,
-            "never" => AskForApproval::Never,
             _ => AskForApproval::Never,
         }
     }
 
     fn sandbox_mode() -> SandboxMode {
         match std::env::var("CODEX_SANDBOX_MODE")
-            .unwrap_or_else(|_| "danger-full-access".to_string())
+            .unwrap_or_default()
             .to_lowercase()
             .as_str()
         {
             "read-only" => SandboxMode::ReadOnly,
             "workspace-write" => SandboxMode::WorkspaceWrite,
-            "danger-full-access" => SandboxMode::DangerFullAccess,
             _ => SandboxMode::DangerFullAccess,
         }
     }
 
-    fn build_codex_command(&self, cwd: &PathBuf) -> io::Result<Command> {
+    fn build_codex_command(&self, cwd: &Path) -> Command {
         let mut cmd = Command::new(&self.binary_path);
         cmd.arg("app-server");
         cmd.current_dir(cwd);
@@ -195,10 +193,10 @@ impl CodexCliRunner {
         cmd.stderr(std::process::Stdio::piped());
         cmd.env("NODE_NO_WARNINGS", "1");
         cmd.env("NO_COLOR", "1");
-        Ok(cmd)
+        cmd
     }
 
-    fn build_npx_command(&self, cwd: &PathBuf) -> io::Result<Command> {
+    fn build_npx_command(&self, cwd: &Path) -> Command {
         let mut cmd = Command::new("npx");
         cmd.args(["-y", &Self::npx_package(), "app-server"]);
         cmd.current_dir(cwd);
@@ -207,7 +205,7 @@ impl CodexCliRunner {
         cmd.stderr(std::process::Stdio::piped());
         cmd.env("NODE_NO_WARNINGS", "1");
         cmd.env("NO_COLOR", "1");
-        Ok(cmd)
+        cmd
     }
 
     fn build_input_items(prompt: &str, images: &[PathBuf]) -> io::Result<Vec<InputItem>> {
@@ -274,7 +272,7 @@ impl CodexCliRunner {
                 vec![AgentEvent::TurnStarted]
             }
             EventMsg::TurnComplete(_) => {
-                let usage = state.last_usage.clone().unwrap_or_default();
+                let usage = state.last_usage.take().unwrap_or_default();
                 state.message_stream_source = None;
                 state.reasoning_stream_source = None;
                 vec![AgentEvent::TurnCompleted(TurnCompletedEvent { usage })]
@@ -433,7 +431,6 @@ impl CodexCliRunner {
                 })]
             }
             EventMsg::McpToolCallEnd(ev) => {
-                let tool_name = format!("mcp:{}::{}", ev.invocation.server, ev.invocation.tool);
                 let (success, result, error) = match &ev.result {
                     Ok(result) => {
                         let rendered = serde_json::to_string(result).unwrap_or_default();
@@ -442,7 +439,7 @@ impl CodexCliRunner {
                     Err(err) => (false, None, Some(err.clone())),
                 };
                 vec![AgentEvent::ToolCompleted(ToolCompletedEvent {
-                    tool_id: tool_name,
+                    tool_id: ev.call_id.clone(),
                     success,
                     result,
                     error,
@@ -454,7 +451,7 @@ impl CodexCliRunner {
                 arguments: Value::Null,
             })],
             EventMsg::WebSearchEnd(ev) => vec![AgentEvent::ToolCompleted(ToolCompletedEvent {
-                tool_id: "WebSearch".to_string(),
+                tool_id: ev.call_id.clone(),
                 success: true,
                 result: Some(format!("Query: {}", ev.query)),
                 error: None,
@@ -485,7 +482,7 @@ impl CodexCliRunner {
                     format!("{}{}", ev.stdout, ev.stderr)
                 };
                 vec![AgentEvent::ToolCompleted(ToolCompletedEvent {
-                    tool_id: "ApplyPatch".to_string(),
+                    tool_id: ev.call_id.clone(),
                     success: ev.success,
                     result: Some(output),
                     error: if ev.success {
@@ -504,7 +501,7 @@ impl CodexCliRunner {
                         arguments: args,
                     }),
                     AgentEvent::ToolCompleted(ToolCompletedEvent {
-                        tool_id: "ViewImage".to_string(),
+                        tool_id: ev.call_id.clone(),
                         success: true,
                         result: Some(ev.path.display().to_string()),
                         error: None,
@@ -613,9 +610,9 @@ impl CodexCliRunner {
         Ok(())
     }
 
-    async fn spawn_app_server(&self, cwd: &PathBuf) -> Result<tokio::process::Child, AgentError> {
+    async fn spawn_app_server(&self, cwd: &Path) -> Result<tokio::process::Child, AgentError> {
         if self.binary_path.exists() {
-            let mut cmd = self.build_codex_command(cwd)?;
+            let mut cmd = self.build_codex_command(cwd);
             match cmd.spawn() {
                 Ok(child) => return Ok(child),
                 Err(err) => {
@@ -624,7 +621,7 @@ impl CodexCliRunner {
             }
         }
 
-        let mut cmd = self.build_npx_command(cwd)?;
+        let mut cmd = self.build_npx_command(cwd);
         let child = cmd.spawn()?;
         Ok(child)
     }

@@ -3207,15 +3207,14 @@ impl App {
                     return None;
                 }
 
+                let home = dirs::home_dir()?;
                 let mut expanded_path = match path {
-                    "~" => dirs::home_dir().expect("checked above"),
+                    "~" => home,
                     _ => {
                         if let Some(rest) =
                             path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\"))
                         {
-                            dirs::home_dir()
-                                .map(|home| home.join(rest))
-                                .expect("checked above")
+                            home.join(rest)
                         } else {
                             std::path::PathBuf::from(path)
                         }
@@ -3287,11 +3286,13 @@ impl App {
             } else {
                 // Already at common prefix - cycle to next match
                 let current = &self.state.command_buffer;
-                let next = matches
+                let Some(next) = matches
                     .iter()
                     .find(|&&cmd| cmd > current.as_str())
                     .or(matches.first())
-                    .unwrap();
+                else {
+                    return;
+                };
                 self.state.command_buffer = (*next).to_string();
             }
         }
@@ -4737,9 +4738,7 @@ impl App {
         if self.state.input_mode == InputMode::SelectingModel
             && self.state.model_selector_state.is_visible()
         {
-            if let Some(effect) = self.handle_model_selector_click(x, y) {
-                effects.push(effect);
-            }
+            effects.extend(self.handle_model_selector_click(x, y));
             return Ok(effects);
         }
 
@@ -5097,7 +5096,7 @@ impl App {
         let relative_x = x.saturating_sub(status_bar_area.x) as usize;
 
         // Extract info from session in a limited scope
-        let (show_mode, mode_width, model_width, agent_width, model, shell_mode) = {
+        let (show_mode, mode_width, model_width, agent_width, model, agent_type, shell_mode) = {
             let session = self.state.tab_manager.active_session()?;
 
             let show_mode = session.capabilities.supports_plan_mode;
@@ -5124,6 +5123,7 @@ impl App {
             let agent_display = session.agent_type.display_name();
             let agent_width = agent_display.len();
             let model = session.model.clone();
+            let agent_type = session.agent_type;
 
             (
                 show_mode,
@@ -5131,6 +5131,7 @@ impl App {
                 model_width,
                 agent_width,
                 model,
+                agent_type,
                 shell_mode,
             )
         };
@@ -5178,8 +5179,25 @@ impl App {
                     );
                 } else {
                     // Click on model/agent area - open model selector
+                    let mut allowed = self.config().effective_enabled_providers(self.tools());
+                    if !allowed.contains(&agent_type) {
+                        let tool = Self::required_tool(agent_type);
+                        if self.tools().is_available(tool) {
+                            allowed.push(agent_type);
+                        }
+                    }
+                    if allowed.is_empty() {
+                        self.state.set_timed_footer_message(
+                            "No enabled providers available. Use /providers.".to_string(),
+                            Duration::from_secs(4),
+                        );
+                        return self.check_pr_badge_click(x, status_bar_area);
+                    }
                     self.state.close_overlays();
                     let defaults = self.model_selector_defaults();
+                    self.state
+                        .model_selector_state
+                        .set_allowed_providers(Some(allowed));
                     self.state.model_selector_state.show(model, defaults);
                     self.state.model_picker_context = ModelPickerContext::SessionSelection;
                     self.state.input_mode = InputMode::SelectingModel;
@@ -5207,8 +5225,25 @@ impl App {
                         Duration::from_secs(3),
                     );
                 } else {
+                    let mut allowed = self.config().effective_enabled_providers(self.tools());
+                    if !allowed.contains(&agent_type) {
+                        let tool = Self::required_tool(agent_type);
+                        if self.tools().is_available(tool) {
+                            allowed.push(agent_type);
+                        }
+                    }
+                    if allowed.is_empty() {
+                        self.state.set_timed_footer_message(
+                            "No enabled providers available. Use /providers.".to_string(),
+                            Duration::from_secs(4),
+                        );
+                        return self.check_pr_badge_click(x, status_bar_area);
+                    }
                     self.state.close_overlays();
                     let defaults = self.model_selector_defaults();
+                    self.state
+                        .model_selector_state
+                        .set_allowed_providers(Some(allowed));
                     self.state.model_selector_state.show(model, defaults);
                     self.state.model_picker_context = ModelPickerContext::SessionSelection;
                     self.state.input_mode = InputMode::SelectingModel;
@@ -5279,7 +5314,8 @@ impl App {
     }
 
     /// Handle click in model selector dialog
-    fn handle_model_selector_click(&mut self, x: u16, y: u16) -> Option<Effect> {
+    fn handle_model_selector_click(&mut self, x: u16, y: u16) -> Vec<Effect> {
+        let mut effects = Vec::new();
         const DIALOG_WIDTH: u16 = 60;
         const DIALOG_HEIGHT: u16 = 18;
 
@@ -5309,13 +5345,13 @@ impl App {
             }
             self.state.model_picker_context = ModelPickerContext::SessionSelection;
             self.state.input_mode = InputMode::Normal;
-            return None;
+            return effects;
         }
 
         let inner = dialog_content_area(dialog_area);
 
         if inner.height < 4 {
-            return None;
+            return effects;
         }
 
         // Layout: search, separator, list, instructions
@@ -5335,7 +5371,7 @@ impl App {
                                 required_tool.display_name()
                             ),
                         );
-                        return None;
+                        return effects;
                     }
 
                     if self.state.model_picker_context
@@ -5346,12 +5382,23 @@ impl App {
                             self.state.model_picker_context = ModelPickerContext::SessionSelection;
                             self.continue_new_project_flow();
                         }
-                        return None;
+                        return effects;
+                    }
+
+                    if self.state.model_picker_context == ModelPickerContext::HandoffSelection {
+                        self.state.model_selector_state.hide();
+                        self.state.model_picker_context = ModelPickerContext::SessionSelection;
+                        self.state.input_mode = InputMode::Normal;
+                        match self.execute_handoff_session(model.agent_type, model.id.clone()) {
+                            Ok(new_effects) => effects.extend(new_effects),
+                            Err(err) => self.show_error("Handoff Failed", &err.to_string()),
+                        }
+                        return effects;
                     }
 
                     if let Some(session) = self.state.tab_manager.active_session_mut() {
                         if Self::reject_cross_agent_switch(session, model.agent_type) {
-                            return None;
+                            return effects;
                         }
                         let agent_changed =
                             session.set_agent_and_model(model.agent_type, Some(model.id.clone()));
@@ -5374,7 +5421,7 @@ impl App {
             }
         }
 
-        None
+        effects
     }
 
     fn handle_reasoning_selector_click(&mut self, x: u16, y: u16) {
@@ -8368,6 +8415,11 @@ impl App {
             self.preferred_provider_for_new_sessions()
                 .unwrap_or(target_agent)
         };
+        let target_model = if target_provider == target_agent {
+            target_model
+        } else {
+            self.config().default_model_for(target_provider)
+        };
 
         // Keep track of where we came from so we can recover cleanly on failure.
         let prev_index = self.state.tab_manager.active_index();
@@ -10772,6 +10824,43 @@ mod tests {
         }
     }
 
+    fn status_bar_model_click_position(app: &App, status_bar_area: Rect) -> (u16, u16) {
+        let session = app
+            .state
+            .tab_manager
+            .active_session()
+            .expect("session missing");
+
+        let show_mode = session.capabilities.supports_plan_mode;
+        let mode_width = if show_mode {
+            session.agent_mode.display_name().len()
+        } else {
+            0
+        };
+        let model_id = session
+            .model
+            .clone()
+            .unwrap_or_else(|| ModelRegistry::default_model(session.agent_type));
+        let model_display = ModelRegistry::find_model(session.agent_type, &model_id)
+            .map(|m| m.display_name.to_string())
+            .unwrap_or(model_id);
+        let model_width = model_display.len();
+        let agent_width = session.agent_type.display_name().len();
+
+        let leading: usize = 2;
+        let relative_x = if show_mode {
+            let model_start = leading + mode_width + 2 - 1;
+            let model_end = leading + mode_width + 2 + model_width + 1 + agent_width + 1;
+            (model_start + model_end) / 2
+        } else {
+            let model_start = leading.saturating_sub(1);
+            let model_end = leading + model_width + 1 + agent_width + 1;
+            (model_start + model_end) / 2
+        };
+
+        (status_bar_area.x + relative_x as u16, status_bar_area.y)
+    }
+
     #[test]
     fn test_apply_session_persistence_report_sets_footer_warning() {
         let mut app = build_test_app_with_sessions(&[]);
@@ -12196,6 +12285,50 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_handoff_session_fallback_provider_uses_default_model() {
+        let source_session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[source_session_id]);
+        let executable = std::env::current_exe().expect("test executable path");
+        assert!(app.tools_mut().update_tool(Tool::Codex, executable.clone()));
+        assert!(app.tools_mut().update_tool(Tool::Claude, executable));
+        app.config_mut()
+            .set_enabled_providers(vec![AgentType::Codex]);
+
+        app.state.pending_handoff_request = Some(PendingHandoffRequest {
+            source_agent_type: AgentType::Codex,
+            agent_mode: AgentMode::Build,
+            reasoning_effort: None,
+            workspace_id: None,
+            working_dir: None,
+            project_name: None,
+            workspace_name: None,
+            pr_number: None,
+            handoff_prompt: Arc::from("[CONDUIT_HANDOFF]\nReady"),
+        });
+
+        let effects = app
+            .execute_handoff_session(AgentType::Claude, "opus".to_string())
+            .expect("handoff should succeed");
+
+        assert!(effects.iter().any(|effect| matches!(
+            effect,
+            Effect::StartAgent {
+                agent_type: AgentType::Codex,
+                ..
+            }
+        )));
+
+        let session = app
+            .state
+            .tab_manager
+            .active_session()
+            .expect("session missing");
+        let expected_model = app.config().default_model_for(AgentType::Codex);
+        assert_eq!(session.agent_type, AgentType::Codex);
+        assert_eq!(session.model.as_deref(), Some(expected_model.as_str()));
+    }
+
+    #[test]
     fn test_handle_confirm_action_selecting_reasoning_sets_effort() {
         let session_id = Uuid::new_v4();
         let mut app = build_test_app_with_sessions(&[session_id]);
@@ -12349,6 +12482,114 @@ mod tests {
     }
 
     #[test]
+    fn test_handle_status_bar_click_model_picker_respects_enabled_providers() {
+        let session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[session_id]);
+        let executable = std::env::current_exe().expect("test executable path");
+        assert!(app.tools_mut().update_tool(Tool::Codex, executable.clone()));
+        assert!(app.tools_mut().update_tool(Tool::Claude, executable));
+        app.config_mut()
+            .set_enabled_providers(vec![AgentType::Codex]);
+
+        let status_bar_area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 1,
+        };
+        let (x, y) = status_bar_model_click_position(&app, status_bar_area);
+
+        let _ = app.handle_status_bar_click(x, y, status_bar_area);
+
+        assert_eq!(app.state.input_mode, InputMode::SelectingModel);
+        assert!(app.state.model_selector_state.is_visible());
+
+        app.state.model_selector_state.insert_str("Opus 4.6");
+        assert!(
+            app.state.model_selector_state.selected_model().is_none(),
+            "Claude model should be filtered out when only Codex is enabled"
+        );
+    }
+
+    #[test]
+    fn test_handle_model_selector_click_executes_pending_handoff() {
+        let source_session_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[source_session_id]);
+        let executable = std::env::current_exe().expect("test executable path");
+        assert!(app.tools_mut().update_tool(Tool::Codex, executable.clone()));
+        assert!(app.tools_mut().update_tool(Tool::Claude, executable));
+        app.config_mut()
+            .set_enabled_providers(vec![AgentType::Codex, AgentType::Claude]);
+
+        app.state.pending_handoff_request = Some(PendingHandoffRequest {
+            source_agent_type: AgentType::Codex,
+            agent_mode: AgentMode::Build,
+            reasoning_effort: None,
+            workspace_id: None,
+            working_dir: None,
+            project_name: None,
+            workspace_name: None,
+            pr_number: None,
+            handoff_prompt: Arc::from("[CONDUIT_HANDOFF]\nReady"),
+        });
+        app.state.input_mode = InputMode::SelectingModel;
+        app.state.model_picker_context = ModelPickerContext::HandoffSelection;
+        app.state
+            .model_selector_state
+            .set_allowed_providers(Some(vec![AgentType::Codex, AgentType::Claude]));
+        app.state
+            .model_selector_state
+            .show(None, app.model_selector_defaults());
+        app.state.model_selector_state.insert_str("Opus 4.6");
+
+        let terminal_size = crossterm::terminal::size().unwrap_or((80, 24));
+        let dialog_width = 60u16.min(terminal_size.0.saturating_sub(4));
+        let dialog_height = 18u16.min(terminal_size.1.saturating_sub(2));
+        let dialog_x = (terminal_size.0.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (terminal_size.1.saturating_sub(dialog_height)) / 2;
+        let inner = dialog_content_area(Rect {
+            x: dialog_x,
+            y: dialog_y,
+            width: dialog_width,
+            height: dialog_height,
+        });
+        let x = inner.x + 1;
+        let y = inner.y + 3;
+
+        let effects = app.handle_model_selector_click(x, y);
+
+        assert_eq!(app.state.input_mode, InputMode::Normal);
+        assert!(!app.state.model_selector_state.is_visible());
+        assert_eq!(
+            app.state.model_picker_context,
+            ModelPickerContext::SessionSelection
+        );
+        assert!(app.state.pending_handoff_request.is_none());
+        assert_eq!(app.state.tab_manager.len(), 2);
+        assert!(effects.iter().any(|effect| matches!(
+            effect,
+            Effect::StartAgent {
+                agent_type: AgentType::Claude,
+                ..
+            }
+        )));
+
+        let source = app
+            .state
+            .tab_manager
+            .session(0)
+            .expect("source session missing");
+        assert_eq!(source.agent_type, AgentType::Codex);
+
+        let target = app
+            .state
+            .tab_manager
+            .active_session()
+            .expect("target session missing");
+        assert_eq!(target.agent_type, AgentType::Claude);
+    }
+
+    #[test]
     fn test_handle_model_selector_click_blocks_cross_agent_switch_after_session_started() {
         let session_id = Uuid::new_v4();
         let mut app = build_test_app_with_sessions(&[session_id]);
@@ -12384,7 +12625,7 @@ mod tests {
         let x = inner.x + 1;
         let y = inner.y + 3;
 
-        assert!(app.handle_model_selector_click(x, y).is_none());
+        assert!(app.handle_model_selector_click(x, y).is_empty());
 
         assert_eq!(app.state.input_mode, InputMode::SelectingModel);
         assert!(app.state.model_selector_state.is_visible());

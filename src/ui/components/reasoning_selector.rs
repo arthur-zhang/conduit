@@ -376,9 +376,9 @@ impl ReasoningSelector {
             render_minimal_scrollbar(
                 area,
                 buf,
-                state.list.scroll_offset,
                 state.list.filtered.len(),
                 visible_count,
+                state.list.scroll_offset,
             );
         }
     }

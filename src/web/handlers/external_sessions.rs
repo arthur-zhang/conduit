@@ -43,7 +43,7 @@ impl ExternalSessionResponse {
     fn from_session(session: ExternalSession) -> Self {
         Self {
             id: session.id.clone(),
-            agent_type: format!("{:?}", session.agent_type).to_lowercase(),
+            agent_type: session.agent_type.as_str().to_string(),
             display: session.truncated_display(140),
             project: session.project.clone(),
             project_name: session.project_name(),
