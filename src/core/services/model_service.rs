@@ -1,6 +1,7 @@
 use crate::agent::ModelRegistry;
 use crate::core::dto::{ListModelsDto, ModelGroupDto, ModelInfoDto};
 use crate::core::services::config_service::ConfigService;
+use crate::core::services::ContextWindowService;
 use crate::core::ConduitCore;
 
 pub struct ModelService;
@@ -24,13 +25,15 @@ impl ModelService {
                     .map(|model| {
                         let is_default =
                             model.agent_type == default_agent && model.id == default_model;
+                        let resolved =
+                            ContextWindowService::resolve(core, model.agent_type, &model.id);
                         ModelInfoDto {
                             id: model.id,
                             display_name: model.display_name,
                             description: model.description,
                             is_default,
                             agent_type: agent_type_str.clone(),
-                            context_window: model.context_window,
+                            context_window: resolved.tokens,
                         }
                     })
                     .collect();

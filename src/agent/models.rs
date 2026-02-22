@@ -62,8 +62,12 @@ impl ModelRegistry {
     /// Extended context window for Claude 1M variants
     pub const CLAUDE_1M_CONTEXT_WINDOW: i64 = 1_000_000;
 
-    /// Default context window for Codex models (272K tokens)
+    /// Fallback context window for Codex models when model-specific value is unknown
     pub const CODEX_CONTEXT_WINDOW: i64 = 272_000;
+    /// Context window for GPT-5.3 Codex
+    pub const CODEX_GPT53_CONTEXT_WINDOW: i64 = 400_000;
+    /// Context window for GPT-5.3 Codex Spark
+    pub const CODEX_GPT53_SPARK_CONTEXT_WINDOW: i64 = 128_000;
 
     /// Default context window for Gemini models (approximate)
     pub const GEMINI_CONTEXT_WINDOW: i64 = 1_000_000;
@@ -228,7 +232,7 @@ impl ModelRegistry {
                 "GPT-5.3-Codex",
                 "gpt-5.3-codex",
                 "Latest frontier agentic coding model",
-                Self::CODEX_CONTEXT_WINDOW,
+                Self::CODEX_GPT53_CONTEXT_WINDOW,
             )
             .as_default(),
             ModelInfo::new(
@@ -237,7 +241,7 @@ impl ModelRegistry {
                 "GPT-5.3-Codex-Spark",
                 "gpt-5.3-codex-spark",
                 "Ultra-fast coding model",
-                Self::CODEX_CONTEXT_WINDOW,
+                Self::CODEX_GPT53_SPARK_CONTEXT_WINDOW,
             ),
             ModelInfo::new(
                 AgentType::Codex,

@@ -37,6 +37,7 @@ use crate::agent::{
 };
 use crate::config::{parse_action, parse_key_notation, Config, KeyContext, COMMAND_NAMES};
 use crate::core::resolve_repo_workspace_settings;
+use crate::core::services::ContextWindowService;
 use crate::core::ConduitCore;
 use crate::data::{
     AppStateStore, ForkSeed, ForkSeedStore, QueuedImageAttachment, QueuedMessage,
@@ -6484,6 +6485,7 @@ impl App {
         let mut pending_sidebar_pr_update: Option<(Uuid, PrStatus)> = None;
         let mut pending_model_invalidation = false;
         let mut should_drain_queue = false;
+        let mut pending_observed_context_window: Option<(AgentType, String, i64)> = None;
 
         {
             let Some(session) = self.state.tab_manager.session_mut(tab_index) else {
@@ -6858,6 +6860,15 @@ impl App {
                 }
                 AgentEvent::TokenUsage(usage_event) => {
                     session.update_context_usage(&usage_event);
+                    if let Some(context_window) = usage_event.context_window {
+                        if context_window > 0 {
+                            let model_id = session.model.clone().unwrap_or_else(|| {
+                                ModelRegistry::default_model(session.agent_type)
+                            });
+                            pending_observed_context_window =
+                                Some((session.agent_type, model_id, context_window));
+                        }
+                    }
 
                     // Check if we need to show a warning notification
                     if let Some(warning) = session.pending_context_warning.take() {
@@ -6904,6 +6915,14 @@ impl App {
             self.state
                 .sidebar_data
                 .update_workspace_pr_status(workspace_id, Some(status));
+        }
+        if let Some((agent_type, model_id, context_window)) = pending_observed_context_window {
+            ContextWindowService::record_observed(
+                &self.core,
+                agent_type,
+                &model_id,
+                context_window,
+            );
         }
         if pending_model_invalidation {
             if let Some(session_tab_dao) = self.session_tab_dao_clone() {
@@ -8469,8 +8488,11 @@ impl App {
             .model
             .clone()
             .unwrap_or_else(|| ModelRegistry::default_model(session.agent_type));
-        let context_window = ModelRegistry::context_window(session.agent_type, &model_id);
-        let token_estimate = Self::estimate_tokens(&seed_prompt);
+        let context_window =
+            ContextWindowService::resolve(&self.core, session.agent_type, &model_id).tokens;
+        let heuristic_tokens = Self::estimate_tokens(&seed_prompt);
+        let observed_tokens = session.context_state.current_tokens.max(0);
+        let token_estimate = heuristic_tokens.max(observed_tokens);
 
         self.state.pending_fork_request = Some(PendingForkRequest {
             agent_type: session.agent_type,
@@ -10697,7 +10719,7 @@ async fn generate_title_and_branch_impl(
 mod tests {
     use super::*;
     use crate::agent::events::{AssistantMessageEvent, ReasoningEvent};
-    use crate::agent::{AgentType, ReasoningEffort};
+    use crate::agent::{AgentType, ModelRegistry, ReasoningEffort};
     use crate::config::Config;
     use crate::data::{QueuedMessage, QueuedMessageMode};
     use crate::ui::components::MessageRole;
@@ -11912,6 +11934,48 @@ mod tests {
             ModelPickerContext::HandoffSelection
         );
         assert!(app.state.pending_handoff_request.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_handle_global_fork_session_uses_model_window_and_observed_tokens() {
+        let session_id = Uuid::new_v4();
+        let parent_workspace_id = Uuid::new_v4();
+        let mut app = build_test_app_with_sessions(&[session_id]);
+        let observed_key = format!(
+            "model_context_window::{}::{}",
+            AgentType::Codex.as_str(),
+            "gpt-5.3-codex-spark"
+        );
+        if let Some(store) = app.core.app_state_store() {
+            let _ = store.delete(&observed_key);
+        }
+
+        {
+            let session = app
+                .state
+                .tab_manager
+                .active_session_mut()
+                .expect("session missing");
+            session.workspace_id = Some(parent_workspace_id);
+            session.model = Some("gpt-5.3-codex-spark".to_string());
+            session.context_state.current_tokens = 111_000;
+        }
+
+        let mut effects = Vec::new();
+        app.handle_global_action(Action::ForkSession, &mut effects);
+
+        assert!(effects.is_empty());
+        let pending = app
+            .state
+            .pending_fork_request
+            .as_ref()
+            .expect("expected pending fork request");
+        assert_eq!(
+            pending.context_window,
+            ModelRegistry::CODEX_GPT53_SPARK_CONTEXT_WINDOW
+        );
+        assert_eq!(pending.token_estimate, 111_000);
+        assert_eq!(pending.model.as_deref(), Some("gpt-5.3-codex-spark"));
     }
 
     #[test]

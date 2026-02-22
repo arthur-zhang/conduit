@@ -15,7 +15,7 @@ use crate::agent::{
 use crate::core::resolve_repo_workspace_settings;
 use crate::core::services::session_service::CreateForkedSessionParams;
 use crate::core::services::{
-    CreateSessionParams, ServiceError, SessionService, UpdateSessionParams,
+    ContextWindowService, CreateSessionParams, ServiceError, SessionService, UpdateSessionParams,
 };
 use crate::data::{ForkSeed, SessionTab, Workspace};
 use crate::ui::app_prompt;
@@ -553,7 +553,7 @@ pub async fn fork_session(
         .model
         .clone()
         .unwrap_or_else(|| ModelRegistry::default_model(session.agent_type));
-    let context_window = ModelRegistry::context_window(session.agent_type, &model_id);
+    let context_window = ContextWindowService::resolve(&core, session.agent_type, &model_id).tokens;
     let token_estimate = estimate_tokens(&seed_prompt);
     let usage_percent = if context_window > 0 {
         (token_estimate as f64 / context_window as f64) * 100.0
