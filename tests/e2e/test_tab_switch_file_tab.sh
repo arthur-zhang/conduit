@@ -133,25 +133,25 @@ INSERT INTO repositories (
     'checkout',
     0,
     0,
-    datetime('now'),
-    datetime('now')
+    strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+    strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
 );
 
 INSERT INTO workspaces (id, repository_id, name, branch, path, created_at, last_accessed, is_default)
 VALUES
-  ('11111111-1111-1111-1111-111111111112','11111111-1111-1111-1111-111111111111','kind-mist','test/kind-mist','DATA_DIR_PLACEHOLDER/workspaces/conduit/kind-mist',datetime('now'),datetime('now'),0),
-  ('11111111-1111-1111-1111-111111111113','11111111-1111-1111-1111-111111111111','live-jade','test/live-jade','DATA_DIR_PLACEHOLDER/workspaces/conduit/live-jade',datetime('now'),datetime('now'),0);
+  ('11111111-1111-1111-1111-111111111112','11111111-1111-1111-1111-111111111111','kind-mist','test/kind-mist','DATA_DIR_PLACEHOLDER/workspaces/conduit/kind-mist',strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),0),
+  ('11111111-1111-1111-1111-111111111113','11111111-1111-1111-1111-111111111111','live-jade','test/live-jade','DATA_DIR_PLACEHOLDER/workspaces/conduit/live-jade',strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),0);
 
-INSERT OR REPLACE INTO app_state(key,value,updated_at) VALUES('sidebar_visible','false',datetime('now'));
-INSERT OR REPLACE INTO app_state(key,value,updated_at) VALUES('tree_collapsed_repos','',datetime('now'));
-INSERT OR REPLACE INTO app_state(key,value,updated_at) VALUES('tree_selected_index','0',datetime('now'));
+INSERT OR REPLACE INTO app_state(key,value,updated_at) VALUES('sidebar_visible','false',strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+INSERT OR REPLACE INTO app_state(key,value,updated_at) VALUES('tree_collapsed_repos','',strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+INSERT OR REPLACE INTO app_state(key,value,updated_at) VALUES('tree_selected_index','0',strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
 
 INSERT INTO session_tabs (
     id, tab_index, is_open, workspace_id, agent_type, agent_mode, agent_session_id,
     model, pr_number, created_at, pending_user_message, queued_messages, input_history,
     fork_seed_id, title
 ) VALUES
-  ('22222222-2222-2222-2222-222222222221', 0, 1, '11111111-1111-1111-1111-111111111112', 'codex', 'build', NULL, NULL, NULL, datetime('now'), NULL, '[]', '[]', NULL, NULL);
+  ('22222222-2222-2222-2222-222222222221', 0, 1, '11111111-1111-1111-1111-111111111112', 'codex', 'build', NULL, NULL, NULL, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL, '[]', '[]', NULL, NULL);
 EOF_SQL
 
 # Replace placeholder path with actual data dir path
